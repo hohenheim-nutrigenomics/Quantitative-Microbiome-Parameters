@@ -1,0 +1,472 @@
+---
+title: "Figure 3"
+output: html_document
+date: "2026-01-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Figure 3 - Correlation Analysis QMPS with gene expression data
+
+##1. Preparation
+
+```{r}
+QMPs_ileum_WT <- filter(QMPs_ileum, genotype_group == "WT")
+QMPs_colon_WT <- filter(QMPs_colon, genotype_group == "WT")
+```
+
+
+```{r}
+vars_to_normalize <- c("Fecal_Mass", "Microbiota_Excretion", "Microbial_Load", "Transit_Time")
+
+QMPs_ileum_WT_fold <- QMPs_ileum_WT %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+
+QMPs_colon_WT_fold <- QMPs_colon_WT %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+```
+
+##2. Ileum
+### 2.1 Transit time
+```{r}
+corr_taxa <- colnames(QMPs_ileum_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_ileum_WT_fold[[i]]
+    y = QMPs_ileum_WT_fold$Transit_Time
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_ileum_transit <- corr_spearman_response
+corr_WT_filt_ileum_transit[,"Quantitative_Parameter"] <- "Transit Time [min]"
+
+```
+
+
+
+###2.2 Microbiota Excretion
+```{r}
+corr_taxa <- colnames(QMPs_ileum_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_ileum_WT_fold[[i]]
+    y = QMPs_ileum_WT_fold$Microbiota_Excretion
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_ileum_excretion <- corr_spearman_response
+corr_WT_filt_ileum_excretion[,"Quantitative_Parameter"] <- "Microbiota Excretion [GCN/GI Passage]"
+
+```
+
+
+###2.3 Microbioal Load
+```{r}
+corr_taxa <- colnames(QMPs_ileum_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_ileum_WT_fold[[i]]
+    y = QMPs_ileum_WT_fold$Microbial_Load
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_ileum_load <- corr_spearman_response
+corr_WT_filt_ileum_load[,"Quantitative_Parameter"] <- "Microbial Load [GCN/g stool]"
+
+```
+
+
+
+###2.4 Fecal Mass
+```{r}
+corr_taxa <- colnames(QMPs_ileum_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_ileum_WT_fold[[i]]
+    y = QMPs_ileum_WT_fold$Fecal_Mass
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value (change n number based on total number of comparisons)
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_ileum_stool <- corr_spearman_response
+corr_WT_filt_ileum_stool[,"Quantitative_Parameter"] <- "Fecal Mass [g]"
+
+```
+
+
+
+##3. Colon
+###3.1 Transit Time
+```{r}
+corr_taxa <- colnames(QMPs_colon_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_colon_WT_fold[[i]]
+    y = QMPs_colon_WT_fold$Transit_Time
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_colon_transit <- corr_spearman_response
+corr_WT_filt_colon_transit[,"Quantitative_Parameter"] <- "Transit Time [min]"
+
+```
+
+
+
+###3.2 Microbiota Excretion
+```{r}
+#define all columns with rel. abundances
+corr_taxa <- colnames(QMPs_colon_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_colon_WT_fold[[i]]
+    y = QMPs_colon_WT_fold$Microbiota_Excretion
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value 
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_colon_excretion <- corr_spearman_response
+corr_WT_filt_colon_excretion[,"Quantitative_Parameter"] <- "Microbiota Excretion [GCN/GI Passage]"
+
+```
+
+
+
+###3.3 Microbial Load
+```{r}
+corr_taxa <- colnames(QMPs_colon_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_colon_WT_fold[[i]]
+    y = QMPs_colon_WT_fold$Microbial_Load
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value 
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_colon_load <- corr_spearman_response
+corr_WT_filt_colon_load[,"Quantitative_Parameter"] <- "Microbial Load [GCN/g stool]"
+
+```
+
+
+
+###3.4 Fecal Mass
+```{r}
+corr_taxa <- colnames(QMPs_colon_WT_fold[, c(18:22)])
+
+corr_spearman_response <- data.frame()
+
+for(i in unique(corr_taxa)){ 
+  tryCatch({
+    x = QMPs_colon_WT_fold[[i]]
+    y = QMPs_colon_WT_fold$Fecal_Mass
+    tmp_corr_spearman_taxa <- stats::cor.test(x, y, method = "spearman", exact = FALSE)
+    rho = tmp_corr_spearman_taxa$estimate
+    p = tmp_corr_spearman_taxa$p.value
+    nrow = nrow(corr_spearman_response)+1
+    corr_spearman_response[nrow, "p.value"] = p
+    corr_spearman_response[nrow, "rho"] = rho
+    corr_spearman_response[nrow, "column"] = i
+    }, error = function(e) return(NA))
+}
+
+#adjust p-value 
+corr_spearman_response$padjusted5 <- p.adjust(corr_spearman_response$p.value, method = "BH")
+
+corr_WT_filt_colon_stool <- corr_spearman_response
+corr_WT_filt_colon_stool[,"Quantitative_Parameter"] <- "Fecal Mass [g]"
+
+```
+
+##4. Plots Ileum
+```{r}
+QMPs_ileum_WT_fold <- QMPs_ileum_WT_fold %>%
+mutate(diet_project = paste(diet, project, sep = "_"))
+
+QMPs_ileum_WT_fold <- QMPs_ileum_WT_fold %>%
+  mutate(diet_project = factor(diet_project, levels = c("control_diet_study", "control_BioClock_TRF_study", "fasting_diet_study", "high_fat_diet_study", "high_fiber_diet_study",
+                                                        "TRF_BioClock_TRF_study")))
+```
+
+
+```{r}
+Diet_AL_TRF_colors <- c("control_diet_study" = "#85C1E9", 
+                          "fasting_diet_study" = "#AF7AC5", 
+                          "high_fat_diet_study" = "#F39C12", 
+                          "high_fiber_diet_study" = "#52BE80", 
+                        "control_BioClock_TRF_study" = "#3498DB",
+                          "TRF_BioClock_TRF_study" = "#2471A3")
+Diet_AL_TRF_labels <- c(
+  "control_diet_study" = "RCD (diet study)",
+  "fasting_diet_study" = "Fasting",
+  "high_fat_diet_study" = "HFaD",
+  "high_fiber_diet_study" = "HFiD",
+  "control_BioClock_TRF_study" = "RCD-AL (TRF study)",
+  "TRF_BioClock_TRF_study" = "RCD-TRF")
+```
+
+
+```{r}
+# microbiota excretion (GCN) - fecal mass
+p1 <- QMPs_ileum_WT_fold %>% 
+  ggplot(aes(Transit_Time, mReg3)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+labs(
+  x = paste0(
+    "<span style='font-size: 25pt'>GI Transit Time</span><br>",
+    "<span style='font-size: 20pt'>[min]</span>"
+  ),
+  y = paste0(
+    "<span style='font-size: 25pt'>Relative <i>Reg3..</i> mRNA Expression</span>"
+  )
+) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+p2 <- QMPs_ileum_WT_fold %>% 
+  ggplot(aes(Microbial_Load, CCL5)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  labs(x = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Relative <i>Ccl5</i> mRNA Expression</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+p3 <- QMPs_ileum_WT_fold %>% 
+  ggplot(aes(Microbial_Load, mReg3)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+labs(
+  x = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>"), 
+  y = paste0(
+    "<span style='font-size: 25pt'>Relative <i>Reg3..</i> mRNA Expression</span>"
+  )
+) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+```
+
+```{r}
+p4 <- QMPs_ileum_WT_fold %>% 
+  ggplot(aes(Fecal_Mass, CCL5)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+labs(
+  x = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>"), 
+  y = paste0("<span style='font-size: 25pt'>Relative <i>Ccl5</i> mRNA Expression</span>")) +
+
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+
+p5 <- QMPs_ileum_WT_fold %>% 
+  ggplot(aes(Fecal_Mass, mReg3)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+labs(
+  x = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>"), 
+  y = paste0(
+      "<span style='font-size: 25pt'>Relative <i>Reg3..</i> mRNA Expression</span>"
+    )
+) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+```
+
+
+```{r}
+pdf("QMP_Geneexpression_Ileum.pdf", width = 19, height = 17) 
+cowplot::plot_grid(plotlist = cowplot::align_plots(p1, p2, p3, p4, p5, align = "hv", axis = "tblr"), ncol = 3, rel_widths = c(1, 1, 1))
+dev.off()
+
+```
+
+##5. Plots Colon
+
+```{r}
+QMPs_colon_WT_fold <- QMPs_colon_WT_fold %>%
+mutate(diet_project = paste(diet, project, sep = "_"))
+
+QMPs_colon_WT_fold <- QMPs_colon_WT_fold %>%
+  mutate(diet_project = factor(diet_project, levels = c("control_diet_study", "control_BioClock_TRF_study", "fasting_diet_study", "high_fat_diet_study", "high_fiber_diet_study",
+                                                        "TRF_BioClock_TRF_study")))
+```
+
+```{r}
+p1 <- QMPs_colon_WT_fold %>% 
+  ggplot(aes(Transit_Time, CCL.5)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  labs(
+    x = paste0(
+      "<span style='font-size: 25pt'>GI Transit Time</span><br>",
+      "<span style='font-size: 20pt'>[min]</span>"
+    ),
+    y = paste0(
+      "<span style='font-size: 25pt'>Relative <i>Ccl5</i> mRNA Expression</span>"
+    )
+  ) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+p2 <- QMPs_colon_WT_fold %>% 
+  ggplot(aes(Transit_Time, TLR4)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+labs(
+  x = paste0(
+    "<span style='font-size: 25pt'>GI Transit Time</span><br>",
+    "<span style='font-size: 20pt'>[min]</span>"
+  ),
+  y = paste0(
+    "<span style='font-size: 25pt'>Relative <i>Tlr4</i> mRNA Expression</span>"
+  )
+) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+
+p3 <- QMPs_colon_WT_fold %>% 
+  ggplot(aes(Microbial_Load, CCL.5)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  labs(x = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Relative <i>Ccl5</i> mRNA Expression</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+
+```
+
+```{r}
+p4 <- QMPs_colon_WT_fold %>% 
+  ggplot(aes(Microbiota_Excretion, CCL.5)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet_project, color = diet_project)) + 
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+labs(
+  x = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per GI Passage]</span>"), 
+  y = paste0(
+    "<span style='font-size: 25pt'>Relative <i>Ccl5</i> mRNA Expression</span>"
+  )
+) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+```
+
+```{r}
+pdf("QMP_Geneexpression_Colon.pdf", width = 19, height = 17) 
+cowplot::plot_grid(plotlist = cowplot::align_plots(p1, p2, p3, p4, align = "hv", axis = "tblr"), ncol = 3, rel_widths = c(1, 1, 1))
+dev.off()
+```
