@@ -1,0 +1,786 @@
+---
+title: "Figure 2"
+output: html_document
+date: "2026-01-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Figure 2B - QMPs TRF study
+
+## 1. Preparation
+excluding mouse 529 due to active colitis symptoms
+```{r}
+TRF_QMP <- filter(metadata_QP_passage, project == "TRF_study" & mouse != "529")
+
+TRF_QMP <- TRF_QMP %>%
+mutate(genotype_trf = paste(genotype_group, diet, sep = "_"))
+```
+
+##2. QMP Plots and Statistics
+###2.1 Transit Time
+####Statistics
+```{r}
+x <- TRF_QMP$Transit_Time
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_transit_TRF <- TRF_QMP %>% group_by (genotype_group) %>% pairwise_wilcox_test(Transit_Time ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_transit_TRF <- TRF_QMP %>% group_by (diet) %>% pairwise_wilcox_test(Transit_Time ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+####Plot
+```{r}
+TRF_QMP$genotype_group <- factor(TRF_QMP$genotype_group, levels = c("WT", "IL10-/-"))
+facet_labels_TRF <- c("control" = "ad libitum", "TRF" = "TRF")
+
+facet_labels_genotype <- c("WT" = "WT", "IL10ko" = expression("IL-10"^"-/-"))
+
+plot_transit <- TRF_QMP %>%
+ggplot(aes(x= diet, 
+                 y=Transit_Time, 
+                 fill = genotype_trf,
+                 color = genotype_trf)) + 
+  geom_boxplot(lwd=1.5, width=0.6, outlier.shape = NA,  alpha = 0.2) +
+  geom_point(size = 2.5, fill = "#333333") +
+   scale_fill_manual(values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_color_manual(values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+   scale_x_discrete(
+    labels = c("control" = "ad libitum", "TRF" = "TRF"),
+    expand=c(0.5, 0
+             )) +
+labs(x = "", 
+         y = paste0("<span style='font-size: 25pt'>GI Transit Time</span><br><span style='font-size: 20pt'>[min]</span>")) + 
+  facet_wrap(~genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
+  coord_cartesian(xlim = c(2, 1)) +
+  scale_y_continuous(limits = c(50, 350), breaks = seq(0, 360, by = 60)) +
+  Settings_Eva +
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+```
+
+###2.2. Microbiota Excretion 
+####Statistics
+```{r}
+x <- TRF_QMP$Microbiota_Excretion
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+```{r}
+stats1_load_TRF <- TRF_QMP %>% group_by (genotype_group) %>% pairwise_wilcox_test(Microbiota_Excretion ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_load_TRF <- TRF_QMP %>% group_by (diet) %>% pairwise_wilcox_test(Microbiota_Excretion ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+####Plot
+```{r}
+TRF_QMP$genotype_group <- factor(TRF_QMP$genotype_group, levels = c("WT", "IL10-/-"))
+facet_labels_TRF <- c("control" = "ad libitum", "TRF" = "TRF")
+
+facet_labels_genotype <- c("WT" = "WT", "IL10ko" = expression("IL-10"^"-/-"))
+
+
+plot_load <-TRF_QMP %>%
+  ggplot(aes(x = diet, 
+             y = Microbiota_Excretion, 
+             fill = genotype_trf, 
+             color = genotype_trf)) + 
+  geom_boxplot(lwd = 1.2, width = 0.6, outlier.shape = NA,
+               alpha = 0.2) + 
+    geom_point(size = 2.5, fill = "#333333") +
+  scale_fill_manual(
+    values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_color_manual(
+    values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_x_discrete(
+    labels = c("control" = "ad libitum", "TRF" = "TRF"),
+    expand = c(0.5, 0)
+  ) +
+  labs(x = "", 
+         y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per GI Passage]</span>")) +
+  facet_wrap(~ genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
+  coord_cartesian(xlim = c(2, 1)) +
+  scale_y_continuous(limits = c(1.0e+10, 2e+11)) +
+  Settings_Eva +
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+
+
+```
+
+###2.3 Microbial Load
+####Statistics
+```{r}
+x <- TRF_QMP$Microbial_Load
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_density_TRF <- TRF_QMP %>% group_by (genotype_group) %>% pairwise_wilcox_test(Microbial_Load ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_density_TRF <- TRF_QMP %>% group_by (diet) %>% pairwise_wilcox_test(Microbial_Load ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+####Plot
+```{r}
+TRF_QMP$genotype_group <- factor(TRF_QMP$genotype_group, levels = c("WT", "IL10-/-"))
+facet_labels_TRF <- c("control" = "ad libitum", "TRF" = "TRF")
+
+facet_labels_genotype <- c("WT" = "WT", "IL10ko" = expression("IL-10"^"-/-"))
+
+
+plot_density <- TRF_QMP %>%
+  ggplot(aes(x = diet, 
+             y = Microbial_Load, 
+             fill = genotype_trf,  
+             color = genotype_trf)) + 
+  geom_boxplot(lwd = 1.2, width = 0.6, outlier.shape = NA,
+               alpha = 0.2) +  
+    geom_point(size = 2.5, fill = "#333333") +
+  scale_fill_manual(
+    values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_color_manual(
+    values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_x_discrete(
+    labels = c("control" = "ad libitum", "TRF" = "TRF"),
+    expand = c(0.5, 0)
+  ) +
+labs(x = "", 
+    y = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>")) +
+  facet_wrap(~ genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
+  coord_cartesian(xlim = c(2, 1)) +
+  scale_y_continuous(limits = c(2.5e+10, 5e+11)) +
+  Settings_Eva +
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+```
+
+### 2.4 Fecal Mass
+
+####Statistics
+```{r}
+x <- TRF_QMP$Fecal_Mass
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_stool_TRF <- TRF_QMP %>% group_by (genotype_group) %>% pairwise_wilcox_test(Fecal_Mass ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_stool_TRF <- TRF_QMP %>% group_by (diet) %>% pairwise_wilcox_test(Fecal_Mass ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+####Plot
+```{r}
+TRF_QMP$genotype_group <- factor(TRF_QMP$genotype_group, levels = c("WT", "IL10-/-"))
+facet_labels_TRF <- c("control" = "ad libitum", "TRF" = "TRF")
+
+facet_labels_genotype <- c("WT" = "WT", "IL10ko" = expression("IL-10"^"-/-"))
+
+
+pdf("Stool_TRF.pdf", width = 9, height=6)
+plot_stool <- TRF_QMP %>%
+  ggplot(aes(x = diet, 
+             y = Fecal_Mass, 
+             fill = genotype_trf,
+             color = genotype_trf)) + 
+  geom_boxplot(lwd = 1.2, width = 0.6, outlier.shape = NA,
+               alpha = 0.2) + 
+    geom_point(size = 2.5, fill = "#333333") +
+  scale_fill_manual(
+    values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_color_manual(
+    values = c("#3498DB", "#2471A3", "#E74C3C", "#A93226")) +
+  scale_x_discrete(
+    labels = c("control" = "ad libitum", "TRF" = "TRF"),
+    expand = c(0.5, 0)
+  ) +
+labs(x = "", 
+    y = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>")) +
+  facet_wrap(~ genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
+  coord_cartesian(xlim = c(2, 1)) +
+  scale_y_continuous(limits = c(0.0, 1.0)) +
+  Settings_Eva +
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+dev.off()
+
+```
+
+### 2.5 Save Plots in same panel width
+```{r}
+# Turn all your plots into grobs
+g1 <- ggplotGrob(plot_transit)
+g2 <- ggplotGrob(plot_stool)
+g3 <- ggplotGrob(plot_density)
+g4 <- ggplotGrob(plot_load)
+
+# Find the maximum panel width across all plots
+max_width <- grid::unit.pmax(
+  g1$widths[2:5],
+  g2$widths[2:5],
+  g3$widths[2:5],
+  g4$widths[2:5]
+)
+
+# Apply that max width to all plots
+g1$widths[2:5] <- max_width
+g2$widths[2:5] <- max_width
+g3$widths[2:5] <- max_width
+g4$widths[2:5] <- max_width
+
+# Save each plot individually with matching panel widths
+ggsave("TRF_transit.pdf", g1, width = 8, height = 6)
+ggsave("TRF_stool.pdf", g2, width = 8, height = 6)
+ggsave("TRF_density.pdf", g3, width = 8, height = 6)
+ggsave("TRF_load.pdf", g4, width = 8, height = 6)
+
+```
+
+```{r}
+aligned <- cowplot::align_plots(
+  plot_transit,
+  plot_stool,
+  plot_density,
+  plot_load,
+  align = "hv",
+  axis = "tblr"
+)
+
+ggsave("TRF_transit.pdf", aligned[[1]], width = 8, height = 6)
+ggsave("TRF_stool.pdf",   aligned[[2]], width = 8, height = 6)
+ggsave("TRF_density.pdf", aligned[[3]], width = 8, height = 6)
+ggsave("TRF_load.pdf",    aligned[[4]], width = 8, height = 6)
+
+```
+
+##3. Mean ± SD table TRF study
+```{r}
+# markers to summarise
+markers <- c("Transit_Time", "Microbiota_Excretion", "Microbial_Load", "Fecal_Mass")
+
+# 1. Calculate mean and SD by diet
+mean_TRF_QMP <- TRF_QMP %>%
+  group_by(genotype_trf) %>%
+  summarise(
+    across(
+      all_of(markers),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE)
+      )
+    ),
+    .groups = "drop"
+  )
+
+# 2. Add mean ± SD columns
+for (m in markers) {
+  mean_col <- paste0(m, "_mean")
+  sd_col   <- paste0(m, "_sd")
+  pm_col   <- paste0(m, "_mean_pm_sd")
+
+  mean_TRF_QMP[[pm_col]] <-
+    paste0(
+      round(mean_TRF_QMP[[mean_col]], 4),
+      " ± ",
+      round(mean_TRF_QMP[[sd_col]], 4)
+    )
+}
+
+write.table(mean_TRF_QMP, file = 'mean_TRF_QMP.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+
+
+# Figure 2C - QMPs per ZTs
+
+##1. Preparation
+```{r}
+QMP_ZT <- metadata_QP_passage %>%
+    filter((project == "extra_study") |
+    (project == "TRF_study"))  %>%
+    filter(diet != "TRF")
+```
+
+##2. QMP Plots per ZTs
+
+```{r}
+df_two <- QMP_ZT %>%
+  filter(
+    (project == "BioClock_TRF") |   # 12h/12h
+      project == "BioClock_WP1" & clock_group == "normal"                    # 4h/4h
+  ) %>%
+  mutate(
+    condition = case_when(
+      ZT == 1  ~ "ZT 1",
+      ZT == 5  ~ "ZT 5",
+      TRUE ~ NA_character_
+    ),
+    condition = factor(condition, levels = c("ZT 1", "ZT 5")),
+    genotype_group = factor(genotype_group, levels = c("WT", "IL10-/-"))
+  ) %>%
+  select(condition, genotype_group,
+         Fecal_Mass, Microbial_Load, Microbiota_Excretion, Transit_Time) %>%
+  tidyr::pivot_longer(
+    cols = c(Fecal_Mass, Microbial_Load, Microbiota_Excretion, Transit_Time),
+    names_to = "QMP",
+    values_to = "value"
+  )
+
+
+y_limits <- tibble::tribble(
+  ~QMP,               ~ymin,   ~ymax,
+  "Fecal_Mass",        0,       1.0,
+  "Microbial_Load",    2.5e10,   6e11,
+  "Microbiota_Excretion",        1e10,     2.5e11,
+  "Transit_Time",   50,       350
+)
+
+df_two <- df_two %>%
+  left_join(y_limits, by = "QMP")
+
+df_two$QMP <- factor(df_two$QMP,
+                     levels = c(
+                       "Transit_Time",
+                       "Fecal_Mass",
+                       "Microbial_Load",
+                       "Microbiota_Excretion"))
+
+pos <- position_dodge(width = 0.75)
+
+p_two <- ggplot(df_two, aes(
+  x = genotype_group,
+  y = value,
+  fill = condition,
+  color = condition)) +
+  geom_boxplot( lwd = 1.2, width = 0.55, outlier.shape = NA, alpha = 0.25, position = pos ) +
+  geom_point(size = 2.4, stroke = 0.7, position = pos, alpha = 0.8) +
+  geom_point(aes(y = ymin), alpha = 0) +
+  geom_point(aes(y = ymax), alpha = 0) +
+  facet_wrap(~ QMP, ncol = 4, scales = "free_y") +
+  scale_fill_manual(values = c(
+    "ZT 1" = "#3498DB",
+    "ZT 5" = "#4B3CC7"
+  )) +
+  scale_color_manual(values = c(
+    "ZT 1" = "#3498DB",
+    "ZT 5" = "#4B3CC7"
+  )) +
+  scale_x_discrete(
+    labels = c(
+      "WT" = "WT",
+      "IL10-/-" = expression("IL-10"^"-/-"))) +
+  labs(x = "", y = "", fill = "", color = "") +
+  Settings_inactivity +
+  theme(
+    panel.spacing = unit(4, "lines"))
+p_two
+
+### Save
+ggsave("QMPs_ZT.pdf",
+       p_two, width = 28, height = 10)
+
+```
+
+##3. Statistics and Mean ± SD table per ZTs
+
+```{r}
+summary_stats_ZT <- QMP_ZT %>%
+  group_by(genotype_group, ZT) %>%
+  summarise(
+    Fecal_Mass_mean = mean(Fecal_Mass, na.rm = TRUE),
+    Fecal_Mass_sd   = sd(Fecal_Mass, na.rm = TRUE),
+
+    Microbial_Load_mean = mean(Microbial_Load, na.rm = TRUE),
+    Microbial_Load_sd   = sd(Microbial_Load, na.rm = TRUE),
+
+    Microbiota_Excretion_mean = mean(Microbiota_Excretion, na.rm = TRUE),
+    Microbiota_Excretion_sd   = sd(Microbiota_Excretion, na.rm = TRUE),
+
+    Transit_Time_mean = mean(Transit_Time, na.rm = TRUE),
+    Transit_Time_sd   = sd(Transit_Time, na.rm = TRUE)
+  )
+```
+
+```{r}
+x <- QMP_ZT$Fecal_Mass
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> normal distribution
+
+```{r}
+stats1_stool_ZT <- QMP_ZT %>% group_by (genotype_group) %>% pairwise_t_test(Fecal_Mass ~ ZT) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_stool_ZT <- QMP_ZT %>% group_by (ZT) %>% pairwise_t_test(Fecal_Mass ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+```{r}
+x <- QMP_ZT$Microbial_Load
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_density_ZT <- QMP_ZT %>% group_by (genotype_group) %>% pairwise_wilcox_test(Microbial_Load ~ ZT) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_density_ZT <- QMP_ZT %>% group_by (ZT) %>% pairwise_wilcox_test(Microbial_Load ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+
+```{r}
+x <- QMP_ZT$Microbiota_Excretion
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_load_ZT <- QMP_ZT %>% group_by (genotype_group) %>% pairwise_wilcox_test(Microbiota_Excretion ~ ZT) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_load_ZT <- QMP_ZT %>% group_by (ZT) %>% pairwise_wilcox_test(Microbiota_Excretion ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+```{r}
+x <- QMP_ZT$Transit_Time
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_transit_ZT <- QMP_ZT %>% group_by (genotype_group) %>% pairwise_wilcox_test(Transit_Time ~ ZT) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_transit_ZT <- QMP_ZT %>% group_by (ZT) %>% pairwise_wilcox_test(Transit_Time ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+# Figure 2D - gene expression diet study
+##1. Preparation
+```{r}
+TRF_data_ileum <- filter(QMPs_ileum, project == "TRF_study")
+TRF_data_colon <- filter(QMPs_colon, project == "TRF_study")
+
+TRF_data_ileum_nocol <- filter(TRF_data_ileum, colitis == "no")
+TRF_data_colon_nocol <- filter(TRF_data_colon, colitis == "no")
+
+TRF_data_colon_nocol <- TRF_data_colon_nocol %>%
+  mutate(diet_genotype = paste(diet, genotype_group, sep = "_"))
+
+TRF_data_ileum_nocol <- TRF_data_ileum_nocol %>%
+  mutate(diet_genotype = paste(diet, genotype_group, sep = "_"))
+```
+##2. Ileum
+###2.1 Statistics
+
+```{r}
+columns_to_test <- c(18:22)
+
+pairwise_test_results <- list()
+
+# Loop 
+for (col_num in columns_to_test) {
+  col_name <- names(TRF_data_ileum_nocol)[col_num]
+  x <- TRF_data_ileum_nocol[[col_num]]
+  
+  # Perform normality tests
+  shapiro_test <- shapiro.test(x)
+  ad_test <- ad.test(x)
+  
+  if (shapiro_test$p.value > 0.05 & ad_test$p.value > 0.05) {
+    result_adj <- pairwise.t.test(x, TRF_data_ileum_nocol$diet_genotype, p.adjust.method = "BH")
+    result_raw <- pairwise.t.test(x, TRF_data_ileum_nocol$diet_genotype, p.adjust.method = "none")
+    test_type <- "pairwise t-test"
+  } else {
+    result_adj <- pairwise.wilcox.test(x, TRF_data_ileum_nocol$diet_genotype, p.adjust.method = "BH")
+    result_raw <- pairwise.wilcox.test(x, TRF_data_ileum_nocol$diet_genotype, p.adjust.method = "none")
+    test_type <- "pairwise Wilcoxon test"
+  }
+  
+  pairwise_test_results[[col_name]] <- list(
+    test = test_type,
+    p.value.matrix.raw = result_raw$p.value,
+    p.value.matrix.adjusted = result_adj$p.value
+  )
+}
+
+# Print results
+for (col_name in names(pairwise_test_results)) {
+  cat("\nResults for:", col_name, "\n")
+  cat("Test used:", pairwise_test_results[[col_name]]$test, "\n")
+  cat("Uncorrected p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.raw)
+  cat("BH-adjusted p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.adjusted)
+}
+
+
+```
+
+###2.2  Mean ± SD table
+```{r}
+columns_to_test <- c(17:21)
+
+n_counts_grouped_ileum_TRF <- TRF_data_ileum_nocol %>%
+  group_by(diet_genotype) %>%
+  summarise(across(all_of(columns_to_test),
+                   ~ sum(!is.na(.)),
+                   .names = "N_{.col}")) %>%
+  ungroup()
+
+n_df_long_ileum_TRF <- n_counts_grouped_ileum_TRF %>%
+  pivot_longer(cols = starts_with("N_"),
+               names_to = "Variable",
+               values_to = "N") %>%
+  mutate(Variable = sub("N_", "", Variable))
+
+```
+
+```{r}
+# markers to summarise
+markers <- c("TLR4", "TNF", "CCL5", "CCL2", "mReg3")
+
+# 1. Calculate mean and SD by diet
+mean_TRF_ileum <- TRF_data_ileum_nocol %>%
+  group_by(diet_genotype) %>%
+  summarise(
+    across(
+      all_of(markers),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE)
+      )
+    ),
+    .groups = "drop"
+  )
+
+# 2. Add mean ± SD columns
+for (m in markers) {
+  mean_col <- paste0(m, "_mean")
+  sd_col   <- paste0(m, "_sd")
+  pm_col   <- paste0(m, "_mean_pm_sd")
+
+  mean_TRF_ileum[[pm_col]] <-
+    paste0(
+      round(mean_TRF_ileum[[mean_col]], 4),
+      " ± ",
+      round(mean_TRF_ileum[[sd_col]], 4)
+    )
+}
+
+write.table(mean_TRF_ileum, file = 'mean_TRF_ileum.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+```
+
+##3. Colon
+###3.1 Statistics
+```{r}
+columns_to_test <- c(18:22)
+
+pairwise_test_results <- list()
+
+# Loop 
+for (col_num in columns_to_test) {
+  col_name <- names(TRF_data_colon_nocol)[col_num]
+  x <- TRF_data_colon_nocol[[col_num]]
+  
+  # Normality tests
+  shapiro_test <- shapiro.test(x)
+  ad_test <- ad.test(x)
+  
+  if (shapiro_test$p.value > 0.05 & ad_test$p.value > 0.05) {
+    result_adj <- pairwise.t.test(
+      x,
+      TRF_data_colon_nocol$diet_genotype,
+      p.adjust.method = "BH"
+    )
+    result_raw <- pairwise.t.test(
+      x,
+      TRF_data_colon_nocol$diet_genotype,
+      p.adjust.method = "none"
+    )
+    test_type <- "pairwise t-test"
+  } else {
+    result_adj <- pairwise.wilcox.test(
+      x,
+      TRF_data_colon_nocol$diet_genotype,
+      p.adjust.method = "BH"
+    )
+    result_raw <- pairwise.wilcox.test(
+      x,
+      TRF_data_colon_nocol$diet_genotype,
+      p.adjust.method = "none"
+    )
+    test_type <- "pairwise Wilcoxon test"
+  }
+  
+  pairwise_test_results[[col_name]] <- list(
+    test = test_type,
+    p.value.matrix.raw = result_raw$p.value,
+    p.value.matrix.adjusted = result_adj$p.value
+  )
+}
+
+# Print results
+for (col_name in names(pairwise_test_results)) {
+  cat("\nResults for:", col_name, "\n")
+  cat("Test used:", pairwise_test_results[[col_name]]$test, "\n")
+  cat("Uncorrected p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.raw)
+  cat("BH-adjusted p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.adjusted)
+}
+```
+
+###3.2  Mean ± SD table
+```{r}
+columns_to_test <- c(17:21)
+
+n_counts_grouped_colon_TRF <- TRF_data_colon_nocol %>%
+  group_by(diet_genotype) %>%
+  summarise(across(all_of(columns_to_test),
+                   ~ sum(!is.na(.)),
+                   .names = "N_{.col}")) %>%
+  ungroup()
+
+n_df_long_colon_TRF <- n_counts_grouped_colon_TRF %>%
+  pivot_longer(
+    cols = starts_with("N_"),
+    names_to = "Variable",
+    values_to = "N"
+  ) %>%
+  mutate(Variable = sub("N_", "", Variable))
+
+```
+
+```{r}
+markers <- c("TLR4", "TNF", "CCL.5", "CCL2", "mReg3")
+
+# 1. Calculate mean and SD by diet
+mean_TRF_colon <- TRF_data_colon_nocol %>%
+  group_by(diet_genotype) %>%
+  summarise(
+    across(
+      all_of(markers),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE)
+      )
+    ),
+    .groups = "drop"
+  )
+
+# 2. Add mean ± SD columns
+for (m in markers) {
+  mean_col <- paste0(m, "_mean")
+  sd_col   <- paste0(m, "_sd")
+  pm_col   <- paste0(m, "_mean_pm_sd")
+
+  mean_TRF_colon[[pm_col]] <-
+    paste0(
+      round(mean_TRF_colon[[mean_col]], 4),
+      " ± ",
+      round(mean_TRF_colon[[sd_col]], 4)
+    )
+}
+
+write.table(mean_TRF_colon, file = 'mean_TRF_colon.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+##4. Plot 
+```{r}
+
+plot_data_TRF <- TRF_data_ileum_nocol %>%
+  select(diet_genotype, CCL5, mReg3) %>%
+  pivot_longer(
+    cols = c(CCL5, mReg3),
+    names_to = "Gene",
+    values_to = "Expression"
+  ) %>%
+  mutate(Gene = factor(Gene, levels = c("CCL5", "mReg3", "ZO1")))
+
+
+x_axis_labels <- c(
+  "CCL5"  = expression(italic("Ccl5")),
+  "mReg3" = expression(italic("Reg3") * gamma))
+
+# Colors
+diet_colors <- c("#3498DB", "#2471A3", "#E74C3C", "#A93226")
+
+plot_data_TRF$diet_genotype <- factor(
+  plot_data_TRF$diet_genotype,
+  levels = c("control_WT", "TRF_WT", "control_IL10-/-", "TRF_IL10-/-")
+)
+
+pdf("TRF_ileum_combined_genes.pdf", width = 11, height = 7)
+
+pos <- position_dodge(width = 0.8)
+
+ggplot(
+  plot_data_TRF,
+  aes(
+    x = Gene,
+    y = Expression,
+    fill = diet_genotype,
+    color = diet_genotype)) +
+  geom_boxplot(
+    lwd = 1.2,
+    width = 0.6,
+    outlier.shape = NA,
+    alpha = 0.2,   
+    position = pos) +
+  geom_point(
+    size = 2,
+    alpha = 0.7,
+    position = pos) +
+  scale_fill_manual(
+    values = diet_colors,
+    labels = c(
+      "control_WT"      = "WT ad libitum",
+      "TRF_WT"          = "WT TRF",
+      "control_IL10-/-" = expression("IL-10"^"-/-"~"ad libitum"),
+      "TRF_IL10-/-"     = expression("IL-10"^"-/-"~"TRF")),
+    name = "") +
+  scale_color_manual(
+    values = diet_colors,
+    guide = "none"
+  ) +
+  guides(
+    fill = guide_legend(
+      override.aes = list(
+        alpha = 0.2, 
+        colour = diet_colors,  
+        size = 0.8,    
+        width = 0.6))) +
+  scale_x_discrete(labels = x_axis_labels) +
+  labs(
+    x = "",
+    y = "Relative mRNA expression"
+  ) +
+  scale_y_continuous(limits = c(0, 15)) +
+  Settings_diet +
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(size = 25, face = "italic"),
+    legend.position = "right",
+    legend.text = element_text(hjust = 0)
+  )
+
+dev.off()
+```
