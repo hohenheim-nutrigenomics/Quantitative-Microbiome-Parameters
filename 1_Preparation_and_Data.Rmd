@@ -1,0 +1,650 @@
+---
+title: "Preparations"
+output: html_document
+date: "2026-01-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install and load required packages & data + Settings
+
+#1. Packages
+```{r}
+library(lmtest)
+library(ggforce) 
+library(ComplexHeatmap)
+library(compositions)
+library(emmeans)
+library(circlize) 
+library(MuMIn)
+library(pheatmap)
+library(glmnet)
+library(tidytext)
+library(ggplot2)
+library(ggtext)
+library(nortest)
+library(tidyverse)
+library(ggpubr) 
+library(vegan)
+library(dplyr)
+library(tidyr)
+library(ggsignif)
+library(cowplot)
+library(rstatix) 
+library(reshape2)
+library(scales)
+library(ggrepel) 
+library(ggthemes)
+library(grid)
+library(factoextra)
+library(FactoMineR)
+library(sjPlot)
+library(ggstatsplot)
+library(bayestestR)
+library(performance)
+library(ggrepel)
+library(car)
+library(magrittr)
+library(lme4)
+library(lmerTest)
+library(ggvegan)
+library(ggpattern)
+```
+
+#1. Settings
+```{r}
+Settings_box <- theme_classic(base_size = 30) + # for Shannon boxplots (Diet, TRF) and QMP Diet Boxplots 
+  theme(legend.position= "none",
+        #legend.text.align = 0.5, # deprecated
+        legend.text = element_text(hjust = 0.5),
+        #aspect.ratio = 1.5,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=25, colour = "black", hjust = 0.5),
+        axis.text.y = element_text(size=25, colour = "black")) 
+
+Settings_TRF <- theme_classic(base_size = 30) + # QMP and bodyweight boxplots TRF
+  theme(legend.position= "none",
+        legend.text.align = 0.5,
+        aspect.ratio = 1.5,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=20, hjust = 0.5), 
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=25,
+                                   colour = "black",
+                                    hjust = 0.5),
+        axis.text.y = element_text(size=25, colour = "black"))
+
+Settings_line <- theme_classic(base_size = 30) + # Fig. 5 ggline GI Emptying plots 
+  theme(#legend.text = element_text(hjust = 0.5), text to the left, not middle
+        legend.title = element_blank(),  
+        aspect.ratio = 1,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=20, colour = "black", hjust = 0.5),
+        axis.text.y = element_text(size=20, colour = "black"))
+
+Settings_PCoA <- theme_classic(base_size = 30) + # for TRF PCoA 
+  theme(legend.position= "right",
+        #legend.text = element_text(hjust = 0.5),
+        aspect.ratio = 1,
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=20, colour = "black"),
+        axis.text.y = element_text(size=20, colour = "black"))
+
+Settings_corr <- theme_classic(base_size = 30) + # for QMP-QMP corr 
+  theme(#legend.position= "none",
+        #legend.text = element_text(hjust = 0.5),
+        legend.title = element_blank(),  
+        aspect.ratio = 1,
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5),
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=20,colour = "black"),
+        axis.text.y = element_text(size=20, colour = "black"))
+
+Settings_barplot <- theme_classic(base_size = 30) + # variance barplot (Fig. 6) and EMM summary plot (Fig. 5)
+  theme(#legend.position= "none",
+        #legend.text = element_text(hjust = 0.5),
+        #legend.title = element_blank(),  
+        #aspect.ratio = 1,
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5),
+        #legend.text = element_text(hjust = 0.5),
+        #legend.title = element_text(size = 20),
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=20,colour = "black"),
+        axis.text.y = element_text(size=20, colour = "black"))
+
+Settings_genes <- theme_classic(base_size = 30) + # gene expression Diet und TRF
+  theme(legend.position= "right",
+        legend.text.align = 0, # deprecated
+        legend.text = element_text(hjust = 0),
+        #aspect.ratio = 1.5,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=25,
+                                   colour = "black",
+                                    hjust = 0.5),
+        axis.text.y = element_text(size=25, colour = "black"))
+
+Settings_Settings_ZT <- theme_classic(base_size = 30) +
+  theme(legend.position= "right",
+        legend.text.align = 0, # deprecated
+        legend.text = element_text(hjust = 0),
+        aspect.ratio = 1.2,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=25, colour = "black"),
+        axis.title.x = element_text(size=25, colour = "black"),
+        axis.text.x = element_text(size=25,
+                                   colour = "black",
+                                    hjust = 0.5),
+        axis.text.y = element_text(size=25, colour = "black"))
+
+
+Settings_forest <- theme_classic(base_size = 20) +
+  theme(legend.position= "none",
+        legend.text.align = 0.5,
+        aspect.ratio = 1,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=20, colour = "black"),
+        axis.title.x = element_text(size=20, colour = "black"),
+        axis.text.x = element_text(size=18,
+                                   colour = "black",
+                                    hjust = 0.5),
+        axis.text.y = element_text(size=18, colour = "black"))
+
+Settings_corr_all <- theme_classic(base_size = 20) + # Hannah
+  theme(legend.position= "bottom",
+        legend.text.align = 0.5,
+        aspect.ratio = 0.3,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5), 
+        axis.title.y = element_text(size=20, colour = "black"),
+        axis.title.x = element_text(size=20, colour = "black"),
+        axis.text.x = element_text(size=15,
+                                   colour = "black",
+                                    hjust = 1, angle = 90, vjust = 0.5),
+        axis.text.y = element_text(size=15, colour = "black"))
+        
+        
+Settings_line_weight <- theme_classic(base_size = 20) + # body weight
+  theme(legend.text = element_text(hjust = 0),
+        legend.text.align = 0,
+        legend.title = element_blank(),
+        aspect.ratio = 0.5,
+        panel.spacing = unit(0.5, "lines"),
+        plot.margin = margin(10, 10, 10, 10),
+        strip.background = element_blank(),
+        plot.title = element_text(lineheight=.8, size=25, hjust = 0.5),
+        axis.title.y = element_text(size=20, colour = "black"),
+        axis.title.x = element_text(size=20, colour = "black"),
+        axis.text.x = element_text(size=20, colour = "black", angle = 45, hjust = 1),
+        axis.text.y = element_text(size=20, colour = "black"))
+
+```
+
+#2. Load data
+
+## 2.1 Metadata
+```{r}
+metadata_QP_interval <- read.table("metadata_QP_final.txt", sep = '\t', comment = '', head=T) # input from Suppl. Table S6 B
+```
+
+
+## 2.2 ASV counts per interval
+```{r}
+# Diet
+ASV_count_Diet <- read.table("Final_Input_R_Preparation_Manuscript/ASV_count_Diet.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 A
+
+# TRF 
+ASV_count_TRF <- read.table("Final_Input_R_Preparation_Manuscript/ASV_count_TRF.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 B
+
+# combined
+ASV_count_combined <- read.table("Final_Input_R_Preparation_Manuscript/ASV_count_combined.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 C
+```
+
+
+## 2.3 Taxa counts per interval
+
+Genus (L6)
+```{r}
+# Diet
+L6_count_Diet <- read.table("Final_Input_R_Preparation_Manuscript/L6_count_Diet.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 D
+
+# TRF 
+L6_count_TRF <- read.table("Final_Input_R_Preparation_Manuscript/L6_count_TRF.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 E
+
+# combined
+L6_count_combined <- read.table("Final_Input_R_Preparation_Manuscript/L6_count_combined.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 F
+```
+
+Phylum (L2)
+```{r}
+# combined
+L2_count_combined <- read.table("Final_Input_R_Preparation_Manuscript/L2_count_combined.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # input from Suppl. Table S3 G
+```
+
+
+## 2.4 Body weight and gene expression
+
+```{r}
+weight_diet <- read.table("weight_diet.txt", sep = '\t', comment = '', head=T, row.names = 1, check.names = F) # Suppl. Table Figure 1
+weight_TRF <- read.table("weight_TRF.txt", sep = '\t', comment='', head=T)
+
+genexpression_colon <- read.table("gene_expression_colon.txt", sep = '\t', comment='', head=T)
+genexpression_ileum <- read.table("gene_expression_ileum.txt", sep = '\t', comment='', head=T)
+```
+
+
+# 3. Prepare additional dataframes for analysis
+
+## 3.1 Metadata per GI passage
+
+
+```{r}
+metadata_QP_passage <- read.table("metadata_QP_passage_final.txt", sep = '\t', comment = '', head=T)
+```
+
+or calculation:
+
+Function
+```{r}
+# Define a function for automating aggregation
+automate_aggregation <- function(input_df, grouping_vars, agg_vars, agg_methods, new_names) {
+  
+  # Initialize an empty list to store intermediate aggregated dataframes
+  agg_dfs <- list()
+  
+  # Loop through each variable to be aggregated
+  for (i in seq_along(agg_vars)) {
+    var_name <- agg_vars[i]
+    agg_method <- agg_methods[i]
+    new_name <- new_names[i]
+    
+   # Apply the correct aggregation method (mean or sum)
+    agg_func <- if (agg_method == "mean") mean else sum
+    agg_df <- aggregate(input_df[[var_name]], 
+                        by = input_df[grouping_vars], 
+                        FUN = agg_func)
+    
+    # Rename the aggregated column
+    colnames(agg_df)[ncol(agg_df)] <- new_name
+    
+    # Store the result in the list
+    agg_dfs[[i]] <- agg_df
+  }
+  
+  # Merge all aggregated dataframes together
+  final_agg_df <- Reduce(function(x, y) inner_join(x, y, by = grouping_vars), agg_dfs)
+  
+  # Create newID column by combining 'mouse' and 'passage_cycle'
+  final_agg_df <- final_agg_df %>% unite(newID, mouse, passage_cycle, sep = "-", remove = FALSE)
+  
+  return(final_agg_df)
+}
+```
+
+Calculate QPs per GI Passage
+```{r}
+# Define the grouping variables, variables to aggregate, aggregation methods, and new names
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+agg_vars <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time")
+agg_methods <- c("sum", "sum", "mean")
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time")
+
+# Run the function
+metadata_QP_passage <- automate_aggregation(input_df = metadata_QP_interval, 
+                                            grouping_vars = grouping_vars, 
+                                            agg_vars = agg_vars, 
+                                            agg_methods = agg_methods, 
+                                            new_names = new_names)
+
+
+# calculate microbial load
+metadata_QP_passage <- metadata_QP_passage %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
+
+## 3.2 Taxa relAb per Interval
+
+
+**Diet**
+```{r}
+L6_relAb_Diet <- sweep(L6_count_Diet, 1, rowSums(L6_count_Diet),'/') # input from Suppl. Table S3 D
+
+# merge with metadata
+L6_relAb_Diet <- L6_relAb_Diet %>% rownames_to_column("sampleID")
+meta_L6_relAb_Diet <- merge(metadata_QP_interval, L6_relAb_Diet, by = "sampleID") # = input for per interval GLMMs (Suppl. Figure GLMMs)
+```
+
+**TRF**
+```{r}
+L6_relAb_TRF <- sweep(L6_count_TRF, 1, rowSums(L6_count_TRF),'/') # input from Suppl. Table S3 E
+
+# merged with metadata 
+L6_relAb_TRF <- L6_relAb_TRF %>% rownames_to_column("sampleID")
+meta_L6_relAb_TRF <- merge(metadata_QP_interval, L6_relAb_TRF, by = "sampleID") # input for per interval GLMMs (Suppl. Figure GLMMs)
+```
+
+**combined L6**
+```{r}
+L6_relAb_combined <- sweep(L6_count_combined, 1, rowSums(L6_count_combined),'/') # input from Suppl. Table S3 F
+
+# merged with metadata
+L6_relAb_combined <- L6_relAb_combined %>% rownames_to_column("sampleID")
+meta_L6_relAb_combined <- merge(metadata_QP_interval, L6_relAb_combined, by = "sampleID") 
+```
+
+**combined L2**
+```{r}
+L2_relAb_combined <- sweep(L2_count_combined, 1, rowSums(L2_count_combined),'/') # input from Suppl. Table S3 F
+
+# merged with metadata
+L2_relAb_combined <- L2_relAb_combined %>% rownames_to_column("sampleID")
+meta_L2_relAb_combined <- merge(metadata_QP_interval, L2_relAb_combined, by = "sampleID") 
+```
+
+
+## 3.3 Mean ASV count per GI Passage
+
+### a) Diet study
+
+for Figure 1 Shannon and PCoA
+
+merge metadata and ASV count
+```{r}
+ASV_count_Diet <- ASV_count_Diet %>% rownames_to_column("sampleID")
+meta_ASV_Diet <- merge(metadata_QP_interval, ASV_count_Diet, by = "sampleID")  
+```
+
+
+function for aggregation (QMPs and ASVs at once)
+```{r}
+aggregate_all <- function(input_df, grouping_vars, vars_to_aggregate, methods, new_names = NULL) {
+  
+  aggregated_list <- list()
+
+  for (i in seq_along(vars_to_aggregate)) {
+    var <- vars_to_aggregate[i]
+    method <- methods[i]
+    new_name <- if (!is.null(new_names) && !is.na(new_names[i])) new_names[i] else var
+
+    agg_func <- if (method == "mean") mean else sum
+    
+    tmp <- aggregate(input_df[[var]], by = input_df[grouping_vars], FUN = agg_func, na.rm = TRUE)
+    colnames(tmp)[ncol(tmp)] <- new_name
+
+    aggregated_list[[i]] <- tmp
+  }
+
+  # Combine using full_join to preserve all groups
+  agg_df <- Reduce(function(x, y) full_join(x, y, by = grouping_vars), aggregated_list)
+
+  # Create newID from mouse and passage_cycle
+  agg_df <- agg_df %>% unite(sampleID, mouse, passage_cycle, sep = "-", remove = FALSE)
+
+  return(agg_df)
+}
+```
+
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c(
+  "Microbiota_Excretion", "Fecal_Mass", "Transit_Time",
+  colnames(meta_ASV_Diet)[19:588])  # ASV columns
+
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_ASV_Diet <- aggregate_all(
+  input_df = meta_ASV_Diet,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_ASV_Diet <- meta_mean_ASV_Diet %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
+
+
+### b) TRF study
+
+for Figure 2, Supplement Shannon and PCoA
+
+merge metadata and ASV count
+```{r}
+ASV_count_TRF <- ASV_count_TRF %>% rownames_to_column("sampleID")
+meta_ASV_TRF <- merge(metadata_QP_interval, ASV_count_TRF, by = "sampleID")  
+```
+
+function for aggregation (QMPs and ASVs at once) as above
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c(
+  "Microbiota_Excretion", "Fecal_Mass", "Transit_Time",
+  colnames(meta_ASV_TRF)[19:841])  # ASV columns
+
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_ASV_TRF <- aggregate_all(
+  input_df = meta_ASV_TRF,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_ASV_TRF <- meta_mean_ASV_TRF %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+```
+
+
+
+### c) combined
+
+for Figure 6
+
+merge metadata and ASV count
+```{r}
+ASV_count_combined <- ASV_count_combined %>% rownames_to_column("sampleID")
+meta_ASV_combined <- merge(metadata_QP_interval, ASV_count_combined, by = "sampleID")  
+```
+
+
+function for aggregation (QMPs and ASVs at once) as above
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c(
+  "Microbiota_Excretion", "Fecal_Mass", "Transit_Time",
+  colnames(meta_ASV_combined)[19:11310])  # ASV columns
+
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_ASV_combined <- aggregate_all(
+  input_df = meta_ASV_combined,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_ASV_combined <- meta_mean_ASV_combined %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
+
+## 3.4 Mean L6 relAb per GI Passage
+
+### a) Diet study
+
+for Supplementary Figure GLMM
+
+merge metadata and L6 taxa count
+```{r}
+# see 3.2 
+# meta_L6_relAb_Diet
+```
+
+
+function for aggregation (QMPs and relAb at once) as above
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", colnames(meta_L6_relAb_Diet)[19:116])  # Taxa columns
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_L6_relAb_Diet <- aggregate_all(
+  input_df = meta_L6_relAb_Diet,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_L6_relAb_Diet <- meta_mean_L6_relAb_Diet %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
+
+### b) TRF study
+
+for Supplementary Figure GLMM
+
+merge metadata and L6 taxa count
+```{r}
+# see 3.2 
+# meta_L6_relAb_TRF
+```
+
+
+function for aggregation (QMPs and relAb at once) as above
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", colnames(meta_L6_relAb_TRF)[19:119])  # Taxa columns
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_L6_relAb_TRF <- aggregate_all(
+  input_df = meta_L6_relAb_TRF,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_L6_relAb_TRF <- meta_mean_L6_relAb_TRF %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
+
+### c) combined 
+
+for Figure 6B/C 
+
+merge metadata and L6 taxa count
+```{r}
+# see 3.2 
+# meta_L6_relAb_combined
+```
+
+
+function for aggregation (QMPs and relAb at once) as above
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", colnames(meta_L6_relAb_combined)[19:184])  # Taxa columns
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_L6_relAb_combined <- aggregate_all(
+  input_df = meta_L6_relAb_combined,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_L6_relAb_combined <- meta_mean_L6_relAb_combined %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
+
+## 3.5 Mean L2 relAb per GI Passage
+
+for Supplementary Figure GLMM Fig. 6
+
+merge metadata and L2 taxa count
+```{r}
+# see 3.2
+# meta_L2_relAb_combined
+```
+
+
+function for aggregation (QMPs and relAb at once) as above
+define variable and run function
+```{r}
+grouping_vars <- c("mouse", "passage_cycle", "cage", "litter", "diet", "ZT", "disrupted_clock", "clock_group", "colitis", "genotype", "genotype_group", "project")
+vars_to_aggregate <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", colnames(meta_L2_relAb_combined)[19:32])  # Taxa columns
+methods <- c("sum", "sum", "mean", rep("mean", length(vars_to_aggregate) - 3))
+new_names <- c("Microbiota_Excretion", "Fecal_Mass", "Transit_Time", rep(NA, length(vars_to_aggregate) - 3))
+
+meta_mean_L2_relAb_combined <- aggregate_all(
+  input_df = meta_L2_relAb_combined,
+  grouping_vars = grouping_vars,
+  vars_to_aggregate = vars_to_aggregate,
+  methods = methods,
+  new_names = new_names)
+
+# calculate microbial load
+meta_mean_L2_relAb_combined <- meta_mean_L2_relAb_combined %>% mutate(Microbial_Load = Microbiota_Excretion / Fecal_Mass) %>% relocate(Microbial_Load, .before = Fecal_Mass)
+
+```
+
