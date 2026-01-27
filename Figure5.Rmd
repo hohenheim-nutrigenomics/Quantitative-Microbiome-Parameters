@@ -1,0 +1,461 @@
+---
+title: "Figure 5"
+output: html_document
+date: "2026-01-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Figure 5A - QMPs per interval 
+
+## 1. Diet study
+### 1.1 Preparation
+
+```{r}
+meta_Diet <- metadata_QP_interval %>% filter(project == "diet_study") # 88 samples
+
+meta_Diet$timepoint <- factor(meta_Diet$timepoint, ordered = T)
+```
+
+```{r}
+table(meta_Diet$diet) # 20-24 datapoints per diet group
+table(meta_Diet$timepoint) # only 4 datapoints at 240min
+table(meta_Diet$diet, meta_Diet$timepoint)
+```
+
+
+### 1.2 Line plots QMP-Diet
+
+Discard "240min" from the plots, because so few datapoints -> bias
+```{r}  
+# Microbiota_Excretion 
+pdf("Microbiota_Excretion_Diet_Emptying.pdf", width = 7, height = 10)
+
+meta_Diet %>% filter(timepoint != "240min") %>% 
+ggline(x = "timepoint", y = "Microbiota_Excretion", add = "mean_se", color = "diet", size = 1) +
+  labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per Interval]</span>")) +
+  scale_x_discrete(labels = c("60min" = "60", "120min" = "120", "180min" = "180")) + 
+  scale_y_continuous(labels = scales::label_scientific(digits = 1), expand = expansion(mult = c(0.05, 0.25))) +
+  scale_color_manual(values = Diet_colors, name = "Diet", 
+                       labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+  Settings_line + theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+
+# Microbial_Load
+pdf("Microbial_Load_Diet_Emptying.pdf", width = 7, height = 10)
+
+meta_Diet %>% filter(timepoint != "240min") %>% 
+ggline(x = "timepoint", y = "Microbial_Load", add = "mean_se", color = "diet", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Fecal Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per Interval]</span>")) +
+    scale_x_discrete(labels = c("60min" = "60", "120min" = "120", "180min" = "180")) +
+    scale_y_continuous(labels = scales::label_scientific(digits = 1), expand = expansion(mult = c(0.05, 0.35))) +
+    scale_color_manual(values = Diet_colors, name = "Diet", 
+                       labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    Settings_line + theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+
+# Fecal_Mass
+pdf("Fecal_Mass_Diet_Emptying.pdf", width = 7, height = 10)
+
+meta_Diet %>% filter(timepoint != "240min") %>% 
+ggline(x = "timepoint", y = "Fecal_Mass", add = "mean_se", color = "diet", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per Interval]</span>")) +
+    scale_x_discrete(labels = c("60min" = "60", "120min" = "120", "180min" = "180")) + 
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.8))) +
+    scale_color_manual(values = Diet_colors, name = "Diet", 
+                       labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    Settings_line + theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+```
+
+### 1.3 Stats
+
+Distribution
+```{r}
+# Microbiota_Excretion -> non-normal 
+shapiro.test(meta_Diet$Microbiota_Excretion) # p-value = 2.47e-05
+ad.test(meta_Diet$Microbiota_Excretion) # p-value = 0.0001904
+#hist(meta_Diet$Microbiota_Excretion)
+  
+# Microbial_Load -> non-normal 
+shapiro.test(meta_Diet$Microbial_Load) # p-value = 6.194e-07
+ad.test(meta_Diet$Microbial_Load) # p-value = 6.454e-08
+#hist(meta_Diete$Microbial_Load)
+
+# Fecal_Mass -> non-normal 
+shapiro.test(meta_Diet$Fecal_Mass) # p-value = 1.127e-11
+ad.test(meta_Diet$Fecal_Mass) # p-value < 2.2e-16
+#hist(meta_Diete$Fecal_Mass)
+
+# all non-normal
+```
+
+Summary stats
+```{r}
+meta_Diet %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Microbiota_Excretion, type = "mean_sd") %>% mutate(mean_sd = paste(round(mean), "±", round(sd))) %>% View()
+meta_Diet %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Microbial_Load, type = "mean_sd") %>% mutate(mean_sd = paste(round(mean), "±", round(sd))) %>% View()
+meta_Diet %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Fecal_Mass, type = "mean_sd") %>% mutate(mean_sd = paste(round(mean), "±", round(sd))) %>% View()
+```
+
+Pairwise testing (with BH correction)
+```{r}
+# pairwise differences between diets per timepoint 
+meta_Diet %>% group_by(timepoint) %>% pairwise_wilcox_test(Microbiota_Excretion ~ diet) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") 
+meta_Diet %>% group_by(timepoint) %>% pairwise_wilcox_test(Microbial_Load ~ diet) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") 
+meta_Diet %>% group_by(timepoint) %>% pairwise_wilcox_test(Fecal_Mass ~ diet)%>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") 
+```
+
+```{r}
+# pairwise differences between timepoints per diet 
+meta_Diet %>% filter(timepoint != "240min") %>% group_by(diet) %>% pairwise_wilcox_test(Microbiota_Excretion ~ timepoint) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+meta_Diet %>% filter(timepoint != "240min") %>% group_by(diet) %>% pairwise_wilcox_test(Microbial_Load ~ timepoint) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+meta_Diet %>% filter(timepoint != "240min") %>% group_by(diet) %>% pairwise_wilcox_test(Fecal_Mass ~ timepoint)%>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+```
+
+
+
+## 2. TRF study
+
+### 2.1 Preparation
+
+```{r}
+meta_TRF <- metadata_QP_interval %>% filter(project == "BioClock_WP3") # 181 samples
+
+# adjust timepoint
+meta_TRF <- meta_TRF %>% mutate(timepoint = case_when(
+   timepoint %in% c("30min") ~ "30min",
+   timepoint %in% c("60min", "90min") ~ "90min",
+   timepoint %in% c("120min", "150min") ~ "150min",
+   timepoint %in% c("180min", "210min", "240min") ~ "210min",
+   TRUE ~ timepoint))
+
+meta_TRF$timepoint <- factor(meta_TRF$timepoint, levels = c("30min", "90min", "150min", "210min"), order = T) 
+meta_TRF$genotype_group <- factor(meta_TRF$genotype_group, levels = c("WT", "IL10-/-"), order = T)
+meta_TRF <- meta_TRF %>% mutate(diet_genotype = interaction(genotype_group, diet, sep = "_")) %>% relocate(diet_genotype, .after = "genotype_group")
+meta_TRF$diet_genotype <- factor(meta_TRF$diet_genotype, levels = c("WT_control", "WT_TRF", "IL10-/-_control", "IL10-/-_TRF"), order = T)
+
+# remove samples that have NA as Microbiota_Excretion or Microbial_Load
+meta_TRF <- meta_TRF %>% filter(!is.na(Microbiota_Excretion)) %>% filter(!is.na(Microbial_Load))
+meta_TRF <- meta_TRF %>% filter(mouse != "529") # remove outlier mouse
+
+table(meta_TRF$diet_genotype, meta_TRF$timepoint) # 210min -> no samples for TRF, only 2 for IL10ko AL and 3 for WT AL 
+```
+
+
+### 2.2 Line Plots QMP-TRF
+
+```{r}
+# Fecal_Mass
+pdf("Fecal_Mass_TRF_Interval.pdf", width = 7, height = 10)
+meta_TRF %>% filter(timepoint != "210min") %>%
+ggline(x = "timepoint", y = "Fecal_Mass", add = "mean_se", color = "diet_genotype", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per Interval]</span>")) +
+    scale_color_manual(values = WP3_colors, name = "Diet", 
+                       labels = c("WT_control" = "WT RCD-AL", "WT_TRF" = "WT RCD-TRF", "IL10-/-_control" = expression("IL-10"^"-/-"~"RCD-AL"), "IL10-/-_TRF" = expression("IL-10"^"-/-"~"RCD-TRF"))) + 
+  scale_x_discrete(labels = c("30min" = "30", "90min" = "90", "150min" = "150")) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.7))) +
+  Settings_line +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+
+# Microbiota_Excretion
+pdf("Microbiota_Excretion_TRF_Interval.pdf", width = 7, height = 10)
+meta_TRF %>% filter(timepoint != "210min") %>% 
+ggline(x = "timepoint", y = "Microbiota_Excretion", add = "mean_se", color = "diet_genotype", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per Interval]</span>")) +
+    scale_color_manual(values = WP3_colors, name = "Diet", 
+                       labels = c("WT_control" = "WT RCD-AL", "WT_TRF" = "WT RCD-TRF", "IL10-/-_control" = expression("IL-10"^"-/-"~"RCD-AL"), "IL10-/-_TRF" = expression("IL-10"^"-/-"~"RCD-TRF"))) + 
+  scale_x_discrete(labels = c("30min" = "30", "90min" = "90", "150min" = "150")) +
+  scale_y_continuous(labels = scales::label_scientific(digits = 1), expand = expansion(mult = c(0.05, 0.5))) +
+  Settings_line +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+
+# Microbial_Load
+pdf("Microbial_Load_TRF_Interval.pdf", width = 7, height = 10)
+meta_TRF %>% filter(timepoint != "210min") %>%
+ggline(x = "timepoint", y = "Microbial_Load", add = "mean_se", color = "diet_genotype", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Fecal Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per Interval]</span>")) +
+    scale_color_manual(values = WP3_colors, name = "Diet", 
+                       labels = c("WT_control" = "WT RCD-AL", "WT_TRF" = "WT RCD-TRF", "IL10-/-_control" = expression("IL-10"^"-/-"~"RCD-AL"), "IL10-/-_TRF" = expression("IL-10"^"-/-"~"RCD-TRF"))) + 
+  scale_x_discrete(labels = c("30min" = "30", "90min" = "90", "150min" = "150")) +
+  scale_y_continuous(labels = scales::label_scientific(digits = 1), expand = expansion(mult = c(0.05, 0.5))) +
+  Settings_line +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+
+
+```
+
+### 2.3 Stats
+
+Distribution
+```{r}
+# Microbiota_Excretion -> non-normal 
+shapiro.test(meta_TRF$Microbiota_Excretion) # p-value = 1.127e-13
+ad.test(meta_TRF$Microbiota_Excretion) # p-value = < 2.2e-16
+#hist(meta_TRF$Microbiota_Excretion)
+  
+# Microbial_Load -> non-normal 
+shapiro.test(meta_TRF$Microbial_Load) # p-value = 7.059e-16
+ad.test(meta_TRF$Microbial_Load) # p-value = < 2.2e-16
+#hist(meta_TRF$Microbial_Load)
+
+# Fecal_Mass -> non-normal 
+shapiro.test(meta_TRF$Fecal_Mass) # p-value = 1.305e-05
+ad.test(meta_TRF$Fecal_Mass) # p-value = 9.678e-05
+#hist(meta_TRF$Fecal_Mass)
+
+# all non-normal
+```
+
+Summary Stats
+```{r}
+meta_TRF %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Microbiota_Excretion, type = "mean_sd") %>% mutate(mean_sd = paste(round(mean), "±", round(sd))) %>% View()
+meta_TRF %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Microbial_Load, type = "mean_sd") %>% mutate(mean_sd = paste(round(mean), "±", round(sd))) %>% View()
+meta_TRF %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Fecal_Mass, type = "mean_sd") %>% mutate(mean_sd = paste(round(mean), "±", round(sd))) %>% View()
+```
+
+Pairwise testing (with BH correction)
+```{r}
+# pairwise differences between diets per timepoint 
+meta_TRF %>% group_by(timepoint) %>% pairwise_wilcox_test(Microbiota_Excretion ~ diet_genotype) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+meta_TRF %>% group_by(timepoint) %>% pairwise_wilcox_test(Microbial_Load ~ diet_genotype) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+meta_TRF %>% group_by(timepoint) %>% pairwise_wilcox_test(Fecal_Mass ~ diet_genotype)%>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+```
+
+```{r}
+# pairwise differences between timepoints per diet 
+meta_TRF %>% group_by(diet_genotype) %>% pairwise_wilcox_test(Microbiota_Excretion ~ timepoint) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+meta_TRF %>% group_by(diet_genotype) %>% pairwise_wilcox_test(Microbial_Load ~ timepoint) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+meta_TRF %>% group_by(diet_genotype) %>% pairwise_wilcox_test(Fecal_Mass ~ timepoint)%>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+```
+
+
+# Figure 5B - Shannon Index per interval
+
+## 1. Diet study
+
+### 1.1 Preparation
+```{r}
+meta_ASV_Diet
+table(meta_ASV_Diet$diet) # per diet 20-23 datapoints
+
+# calculate Shannon index
+meta_ASV_Diet <- meta_ASV_Diet %>% mutate(Shannon = diversity(meta_ASV_Diet[25:594])) %>% relocate(Shannon, .before = 21)
+
+```
+
+###  1.2 Line plots Shannon-Diet
+```{r}
+pdf("Shannon_Diet_Emptying_Line.pdf", width = 7, height = 10)
+
+table(meta_ASV_Diet$timepoint) # only 4 datapoints for timepoint 240min -> discard here 
+#p1 <- 
+meta_ASV_Diet %>% filter(timepoint != "240min") %>% mutate(timepoint = factor(timepoint, levels = c("60min", "120min", "180min"))) %>% 
+ggline(x = "timepoint", y = "Shannon", add = "mean_se", color = "diet", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Shannon Index</span><br><span style='font-size: 20pt'></span>")) +
+    scale_x_discrete(labels = c("60min" = "60", "120min" = "120", "180min" = "180")) + 
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.3))) +
+    scale_color_manual(values = Diet_colors, name = "Diet", 
+                       labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    Settings_line + theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+
+# G2;H2;Warningh: [38;5;232mRemoved 3 rows containing non-finite outside the scale range (`stat_summary()`).[39mg 
+# -> okay, those are three samples that were lost during rarefaction so no ASV data available
+```
+
+### 1.3 Stats
+
+Distribution
+```{r}
+shapiro.test(meta_ASV_Diet$Shannon) # p-value = 0.009359
+ad.test(meta_ASV_Diet$Shannon) # p-value = 0.0098
+hist(meta_ASV_Diet$Shannon) # -> non-normal distribution
+```
+
+Summary stats
+```{r}
+meta_ASV_Diet %>% group_by(diet, timepoint) %>% get_summary_stats(Shannon, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd)) %>% View()
+```
+
+Pairwise testing (with BH correction)
+```{r}
+# pairwise differences between diet project per timepoint 
+meta_ASV_Diet %>% group_by(timepoint) %>% pairwise_wilcox_test(Shannon ~ diet) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+
+# pairwise differences between timepoints per diet 
+meta_ASV_Diet %>% group_by(diet) %>% pairwise_wilcox_test(Shannon ~ timepoint) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj") %>% View()
+```
+
+
+## 2. TRF study
+
+### 2.1 Preparation
+```{r}
+meta_ASV_TRF$genotype_group <- factor(meta_ASV_TRF$genotype_group, levels = c("WT", "IL10-/-"), order = T)
+meta_ASV_TRF <- meta_ASV_TRF %>% mutate(diet_genotype = interaction(genotype_group, diet, sep = "_")) %>% relocate(diet_genotype, .after = "genotype_group")
+meta_ASV_TRF$diet_genotype <- factor(meta_ASV_TRF$diet_genotype, levels = c("WT_control", "WT_TRF", "IL10-/-_control", "IL10-/-_TRF"), order = T)
+
+# calculate Shannon index
+meta_ASV_TRF <- meta_ASV_TRF %>% mutate(Shannon = diversity(meta_ASV_TRF[26:847])) %>% relocate(Shannon, .before = 21) 
+
+```
+
+### 2.2 Line plot Shannon-TRF
+```{r}
+pdf("Shannon_TRF_Emptying_Line.pdf", width = 7, height = 10)
+
+table(meta_ASV_TRF$timepoint) # only 5 datapoints for timepoint 240min -> discard here?
+#p2 <- 
+  meta_ASV_TRF %>% mutate(timepoint = factor(timepoint, levels = c("30min", "90min", "150min", "210min"), order = T)) %>% 
+  filter(timepoint != "210min") %>% filter(mouse != "529") %>% 
+  
+ggline(x = "timepoint", y = "Shannon", add = "mean_se", color = "diet_genotype", size = 1) +
+    labs(x = paste0("<span style='font-size: 25pt'>Interval during GI Emptying </span><br><span style='font-size: 20pt'>[min]</span>"), 
+         y = paste0("<span style='font-size: 25pt'>Shannon Index</span><br><span style='font-size: 20pt'></span>")) +
+    scale_x_discrete(labels = c("30min" = "30", "90min" = "90", "150min" = "150", "210min" = "210")) + 
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.4))) +
+    scale_color_manual(values = WP3_colors, name = "", 
+                       labels = c("WT_control" = "WT RCD-AL", "WT_TRF" = "WT RCD-TRF", "IL10-/-_control" = expression("IL-10"^"-/-"~"RCD-AL"), "IL10-/-_TRF" = expression("IL-10"^"-/-"~"RCD-TRF"))) + 
+    Settings_line + theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), aspect.ratio = 1.25, legend.position = "none")
+
+dev.off()
+```
+
+
+### 2.3 Stats
+
+Distribution
+```{r}
+shapiro.test(meta_ASV_TRF$Shannon) # p-value = 0.3927
+ad.test(meta_ASV_TRF$Shannon) # p-value = 0.2691
+hist(meta_ASV_TRF$Shannon) # -> normal distribution 
+```
+
+Summary stats
+```{r}
+meta_ASV_TRF %>% group_by(diet_genotype, timepoint) %>% get_summary_stats(Shannon, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd)) %>% View()
+```
+
+Pairwise testing (with BH correction)
+```{r}
+# pairwise differences between timepoints per diet 
+meta_ASV_TRF %>% group_by(diet_genotype) %>% pairwise_t_test(Shannon ~ timepoint) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj")  %>% View()
+
+# pairwise differences between diet project per timepoint 
+meta_ASV_TRF %>% group_by(timepoint) %>% pairwise_t_test(Shannon ~ diet_genotype) %>% adjust_pvalue(method = "BH") %>%  add_significance("p.adj")  %>% View()
+```
+
+
+combine Diet and TRF line plot in plot grid for better matching size
+```{r}
+pdf("Shannon_Diet_TRF_Emptying_Line_grid.pdf", width = 16, height = 12)
+cowplot::plot_grid(p1, p2, labels = "none", col = 2, row = 1, align = "h")
+dev.off()
+```
+
+
+
+# Figure 5C - Taxa barplots aboslute abundance
+
+Related to Suppl. Figure 6 (GLMMs) and Script "Suppl_GLMMs.Rmd", also related to Suppl. Table (S5 D and S5 F) = the EMMs output tables 
+
+##1. Preparation
+```{r}
+# combine and extract relevant information of EMMs output of absAb models of Diet and TRF project
+
+summary_absAb_Diet_TRF <- 
+  rbind(
+    # Diet
+    (output_emmeans_absAb_Diet_filt %>% 
+      mutate(assoc = ifelse(estimate < 0, "pos", "neg")) %>% 
+      rename(intervention = diet) %>%
+      group_by(intervention, contrast, assoc) %>%
+      summarise(n_taxa = n_distinct(taxon_name), .groups = "drop") %>% 
+      mutate(n_taxa_plot = ifelse(assoc == "neg", -n_taxa, n_taxa)) %>% 
+      mutate(timepoint_assoc = paste0(contrast, "_", assoc))),
+  
+    # WP3/TRF
+    (output_emmeans_absAb_TRF_filt %>% 
+      mutate(assoc = ifelse(estimate < 0, "pos", "neg")) %>% 
+      mutate(diet_genotype = paste0(diet, "_", genotype_group)) %>%
+      rename(intervention = diet_genotype) %>% 
+      group_by(intervention, contrast, assoc) %>%
+      summarise(n_taxa = n_distinct(taxon_name), .groups = "drop") %>% 
+      mutate(n_taxa_plot = ifelse(assoc == "neg", -n_taxa, n_taxa)) %>% 
+      mutate(timepoint_assoc = paste0(contrast, "_", assoc)))) 
+
+# transform contrast into coherent timepoints for plotting
+summary_absAb_Diet_TRF <- summary_absAb_Diet_TRF %>% 
+  # standardize whitespace to avoid mismatches like "60min - 120min" vs "60min-120min"
+  mutate(contrast = str_squish(as.character(contrast))) %>%
+  # keep only comparisons that start with "60min" OR "30min"
+  filter(str_detect(contrast, "^(60min|30min)\\s*-")) %>%
+  # create new timepoint variable by mapping equivalent contrasts to a common label
+  mutate(timepoint = case_when(
+    contrast %in% c("60min - 120min", "30min - 90min")   ~ "30min/60min - 90min/120min",
+    contrast %in% c("60min - 180min", "30min - 150min")  ~ "30min/60min - 150min/180min",
+    # add more mappings if needed
+    TRUE ~ NA_character_)) %>% 
+  group_by(intervention, timepoint) %>%
+  mutate(total_taxa_timepoint = sum(abs(n_taxa_plot))) %>%
+  ungroup() %>% 
+  mutate(intervention = fct_reorder(intervention, total_taxa_timepoint, .desc = F)) %>% 
+  mutate(timepoint = factor(timepoint, levels = c("30min/60min - 90min/120min", "30min/60min - 150min/180min"), ordered = TRUE)) %>% 
+  mutate(project = ifelse(intervention %in% c("control", "fasting", "high_fat", "high_fiber"), "Diet study", "TRF study"))
+
+```
+
+
+##2. Plot
+```{r}
+pretty_labels <- c("control" = "RCD (diet study)", "fasting" = "Fasting", "high_fat" = "HFaD", "high_fiber" = "HFiD",
+                   "control_WT" = "WT RCD-AL (TRF study)", "TRF_WT" = "WT RCD-TRF", "control_IL10-/-" = expression("IL-10"^"-/-" * " RCD-AL"), "TRF_IL10-/-"= expression("IL-10"^"-/-" * " RCD-TRF"))
+
+
+pdf("EMM_absAb_Diet_TRF_barplot_v5.pdf", height = 9, width = 15) # 10,16
+
+summary_absAb_Diet_TRF %>% 
+  filter(timepoint != "30min/60min - 90min/120min") %>%
+  # Re-order based on defined level order of intervention (smallest to highest number of taxa)
+  mutate(intervention = fct_relevel(intervention, "TRF_WT", "TRF_IL10-/-", "high_fiber", "control_IL10-/-", "control_WT", "control", "fasting", "high_fat")) %>%
+  
+ggplot(aes(x = n_taxa_plot, y = intervention, fill = assoc, alpha = abs(n_taxa_plot))) +
+  geom_col() +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey60", linewidth = 0.8) +
+  
+  #scale_fill_manual(values = c("pos" = "#cc2b2b", "neg" = "#2b6cb0"), labels = c("pos" = "increase", "neg" = "decrease"), name = "Absolute Abundance") + # darker colors
+  #scale_fill_manual(values = c("pos" = "#FF9999", "neg" = "#99CCFF"), labels = c("pos" = "increase", "neg" = "decrease"), name = "Absolute Abundance") + # lighter colors
+  scale_fill_manual(values = c("pos" = "#f11718", "neg" = "#321aff"), labels = c("pos" = "increase", "neg" = "decrease"), name = "Absolute Abundance") + # lighter colors
+
+  scale_alpha_continuous(range = c(0.2, 1), guide = "none") + # prevents invisible bars, for darker colors use 0.2, for lighter 0.3 or 0.4 
+  scale_y_discrete(labels = pretty_labels) +
+  scale_x_continuous(breaks = seq(-10, 20, by = 5),labels = c(10, 5, 0, 5, 10, 15, 20)) +
+  labs(
+    x = "Number of Taxa with Significant Abundance Shifts\n(Beginning vs. End of Short-Term Fast)",
+    y = "Intervention group") +
+  Settings_barplot +
+  theme(axis.title.y = element_text(vjust = 1), panel.spacing = unit(1.2, "cm"), legend.title = element_text(size = 25), legend.text  = element_text(size = 20))
+
+dev.off()
+
+```
+
+
+
+
