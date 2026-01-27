@@ -1,0 +1,477 @@
+---
+title: "Suppl. Figures"
+output: html_document
+date: "2026-01-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Suppl. Figure 2 - Mouse body weight diet study 
+
+## 1. Preparation
+```{r}
+weight <- weight_diet %>%
+  pivot_longer(
+    cols = c(before_adaption, baseline, cycle_1, regular_1, regular_2, cycle_2),
+    names_to = "timepoint",
+    values_to = "weight"
+  )
+
+weight$timepoint <- factor(
+  weight$timepoint,
+  levels = c("before_adaption", "baseline", "cycle_1", "regular_1", "regular_2", "cycle_2"),
+  labels = c("baseline", "start intervention", "GI passage\nexperiment 1", "week 2", "week 3", "GI passage\nexperiment 2")
+)
+```
+
+## 2. Plot
+```{r}
+pdf("Body_weight_diet.pdf", width = 10, height=7)
+ggplot(weight, aes(x = timepoint, y = weight, group = cage, color = diet)) +
+  geom_point(alpha = 0.6) +
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    aes(group = diet),
+    linewidth = 1.2   
+  ) +
+  scale_color_manual(
+    values = c(
+      "control"   = "#85C1E9",  
+      "fasting"   = "#AF7AC5",  
+      "high-fat"  = "#F39C12",  
+      "high-fiber"= "#52BE80"   
+    ),
+    name = "Diet",
+    labels = c("Control", "Fasting", "High Fat", "High Fiber")
+  ) +
+  labs(
+    x = "",  
+    y = "Mouse Weight [g]"   
+  ) +
+    scale_y_continuous(limits = c(15, 40)) +
+  Settings_line_weight
+dev.off()
+```
+
+##3. Statistics
+```{r}
+x <- weight$weight
+
+shapiro.test(x) 
+ad.test(x)
+```
+
+```{r}
+stats1_weight_diet <- weight %>% group_by (timepoint) %>% pairwise_wilcox_test(weight ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_weight_diet <- weight %>% group_by (diet) %>% pairwise_wilcox_test(weight ~ timepoint) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+# Suppl. Figure 3 - QMPs Clock Disruption
+
+## 1 Preparation
+```{r}
+QMP_clock <- metadata_QP_passage %>%
+    filter(project == "TRF_study") %>%
+    filter(diet != "TRF")
+```
+
+```{r}
+df_two <- QMP_clock %>%
+  filter(
+    (project == "TRF_study" & clock_group == "normal") |   # 12h/12h
+      project == "TRF_study" & clock_group == "disrupted"                    # 4h/4h
+  ) %>%
+  mutate(
+    condition = case_when(
+      inactivity == 1 & clock_group == "normal" ~ "12h/12h",
+      clock_group == "disrupted"               ~ "4h/4h",
+      TRUE ~ NA_character_
+    ),
+    condition = factor(condition, levels = c("12h/12h", "4h/4h")),
+    genotype_group = factor(genotype_group, levels = c("WT", "IL10-/-"))
+  ) %>%
+  select(condition, genotype_group,
+         Fecal_Mass, Microbial_Load, Microbiota_Excretion, Transit_Time) %>%
+  tidyr::pivot_longer(
+    cols = c(Fecal_Mass, Microbial_Load, Microbiota_Excretion, Transit_Time),
+    names_to = "QMP",
+    values_to = "value"
+  )
+```
+
+## 2. Plot
+```{r}
+y_limits <- tibble::tribble(
+  ~QMP,               ~ymin,   ~ymax,
+  "Fecal_Mass",        0,       1.0,
+  "Microbial_Load",    2.5e10,   6e11,
+  "Microbiota_Excretion",        1e10,     2.5e11,
+  "Transit_Time",   50,       350
+)
+
+df_two <- df_two %>%
+  left_join(y_limits, by = "QMP")
+
+pos <- position_dodge(width = 0.8)
+
+df_two$QMP <- factor(df_two$QMP,
+                     levels = c("Transit_Time", "Fecal_Mass", "Microbial_Load", "Microbiota_Excretion"))
+
+pos <- position_dodge(width = 0.75)
+
+p_two <- ggplot(df_two, aes(
+  x = genotype_group, y = value, fill = condition, color = condition)) +
+  geom_boxplot(
+    lwd = 1.2,
+    width = 0.55,
+    outlier.shape = NA,
+    alpha = 0.25,
+    position = pos
+  ) +
+  geom_point(
+    size = 2.4,
+    stroke = 0.7,
+    position = pos,
+    alpha = 0.8
+  ) +
+  geom_point(aes(y = ymin), alpha = 0) +
+  geom_point(aes(y = ymax), alpha = 0) +
+  facet_wrap(~ QMP, ncol = 4, scales = "free_y") +
+  scale_fill_manual(values = c(
+    "SLT 1" = "#3498DB",
+    "SLT 5" = "#7F8C8D"
+  )) +
+  scale_color_manual(values = c(
+    "SLT 1" = "#3498DB",
+    "SLT 5" = "#7F8C8D"
+  )) +
+  scale_x_discrete(
+    labels = c(
+      "WT" = "WT",
+      "IL10-/-" = expression("IL-10"^"-/-"))) +
+  labs(
+    x = "",
+    y = "",
+    fill = "",
+    color = "") +
+  Settings_ZT +
+  theme(
+    panel.spacing = unit(4, "lines"))
+
+ggsave("QMPs_clockdisruption.pdf",
+       p_two, width = 28, height = 10)
+
+```
+
+##3. Statistics
+
+```{r}
+summary_stats_clock_disruption <- QMP_clock %>%
+  group_by(genotype_group, clock_group) %>%
+  summarise(
+    Fecal_Mass_mean = mean(Fecal_Mass, na.rm = TRUE),
+    Fecal_Mass_sd   = sd(Fecal_Mass, na.rm = TRUE),
+
+    Microbial_Load_mean = mean(Microbial_Load, na.rm = TRUE),
+    Microbial_Load_sd   = sd(Microbial_Load, na.rm = TRUE),
+
+    Microbiota_Excretion_mean = mean(Microbiota_Excretion, na.rm = TRUE),
+    Microbiota_Excretion_sd   = sd(Microbiota_Excretion, na.rm = TRUE),
+
+    Transit_Time_mean = mean(Transit_Time, na.rm = TRUE),
+    Transit_Time_sd   = sd(Transit_Time, na.rm = TRUE)
+  )
+```
+
+
+```{r}
+x <- QMP_clock$Fecal_Mass
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> normal distribution
+
+```{r}
+stats1_stool_clockTRF <- QMP_clock %>% group_by (genotype_group) %>% pairwise_t_test(Fecal_Mass ~ clock_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_stool_clockTRF <- QMP_clock %>% group_by (clock_group) %>% pairwise_t_test(Fecal_Mass ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+```{r}
+x <- QMP_clock$Microbial_Load
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_density_clockTRF <- QMP_clock %>% group_by (genotype_group) %>% pairwise_wilcox_test(Microbial_Load ~ clock_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_density_clockTRF <- QMP_clock %>% group_by (clock_group) %>% pairwise_wilcox_test(Microbial_Load ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+
+```{r}
+x <- QMP_clock$Microbiota_Excretion
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_load_clockTRF <- QMP_clock %>% group_by (genotype_group) %>% pairwise_wilcox_test(Microbiota_Excretion ~ clock_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_load_clockTRF <- QMP_clock %>% group_by (clock_group) %>% pairwise_wilcox_test(Microbiota_Excretion ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+```{r}
+x <- QMP_clock$Transit_Time
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_transit_clock <- QMP_clock %>% group_by (genotype_group) %>% pairwise_wilcox_test(Transit_Time ~ clock_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_transit_clock <- QMP_clock %>% group_by (clock_group) %>% pairwise_wilcox_test(Transit_Time ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+```
+
+
+# Suppl. Figure 4 - Mouse body weight TRF study 
+## 1. Preparation
+```{r}
+weight_TRF_long <- left_join(TRF_QMP, weight_TRF, by = "mouse")
+weight_TRF_long <- column_to_rownames(weight_TRF_long, var = "mouse")
+
+weight_TRF_long <- weight_TRF_long %>%
+  select(cage, genotype_trf, GI_experiment, diet, genotype_group)
+```
+
+
+## 2. Plot
+```{r}
+TRF_weight_box <- weight_TRF_long
+
+TRF_weight_box$genotype_trf <- factor(TRF_weight_box$genotype_trf, levels = c("control_WT", "TRF_WT", "control_IL10-/-", "TRF_IL10-/-"))
+facet_labels_TRF <- c("control" = "ad libitum", "TRF" = "TRF")
+
+facet_labels_genotype <- c("WT" = "WT", "IL10ko" = expression("IL-10"^"-/-"))
+
+TRF_weight_box$genotype_group <- factor(TRF_weight_box$genotype_group, levels = c("WT", "IL10-/-"))
+facet_labels_TRF <- c("control" = "ad libitum", "TRF" = "TRF")
+
+facet_labels_genotype <- c("WT" = "WT", "IL10ko" = expression("IL-10"^"-/-"))
+
+pdf("Weight_experiment_TRF.pdf", width = 9, height=6)
+TRF_weight_box %>%
+ggplot(aes(x= genotype_group,, 
+                 y=GI_experiment, 
+                 fill = genotype_trf,
+                 color = genotype_trf)) + 
+  geom_boxplot(lwd=1.5, width=0.6, outlier.shape = NA,  alpha = 0.2) +
+  geom_point(size = 2.5, fill = "#333333") +
+  scale_color_manual(
+    values = c(
+      "control_WT"   = "#3498DB",  
+      "TRF_WT"   = "#2471A3",  
+      "control_IL10-/-"  = "#E74C3C",  
+      "TRF_IL10-/-"= "#A93226"   
+    )) +
+   scale_fill_manual(
+    values = c(
+      "control_WT"   = "#3498DB",  
+      "TRF_WT"   = "#2471A3",  
+      "control_IL10-/-"  = "#E74C3C",  
+      "TRF_IL10-/-"= "#A93226"   
+    )) +
+   scale_x_discrete(
+    labels = c("WT" = "WT ", "IL10-/-" = expression("IL-10"^"-/-")),
+    expand=c(0.5, 0
+             )) +
+labs(x = "", 
+         y = paste0("<span style='font-size: 25pt'>Body Weight</span><br><span style='font-size: 20pt'>[g]</span>")) + 
+  facet_wrap(~diet, labeller = labeller(diet = facet_labels_genotype), scales = "fixed") +
+  coord_cartesian(xlim = c(2, 1)) +
+  scale_y_continuous(limits = c(22, 37)) +
+  Settings_TRF +
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+dev.off()
+```
+
+
+## 3. Statistics
+```{r}
+x <- TRF_weight_box$GI_experiment
+
+shapiro.test(x) 
+ad.test(x)
+```
+--> non-normal distribution
+
+```{r}
+stats1_weight_TRF <- TRF_weight_box %>% group_by (genotype_group) %>% pairwise_t_test(GI_experiment ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+stats2_weight_TRF <- TRF_weight_box %>% group_by (diet) %>% pairwise_t_test(GI_experiment ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+```
+
+
+```{r}
+markers <- c("GI_experiment")
+
+mean_TRF_weight <- TRF_weight_box %>%
+  group_by(genotype_trf) %>%
+  summarise(
+    across(
+      all_of(markers),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE)
+      )
+    ),
+    .groups = "drop"
+  )
+
+for (m in markers) {
+  mean_col <- paste0(m, "_mean")
+  sd_col   <- paste0(m, "_sd")
+  pm_col   <- paste0(m, "_mean_pm_sd")
+
+  mean_TRF_weight[[pm_col]] <-
+    paste0(
+      round(mean_TRF_weight[[mean_col]], 4),
+      " ± ",
+      round(mean_TRF_weight[[sd_col]], 4)
+    )
+}
+
+write.table(mean_TRF_weight, file = 'mean_TRF_weight.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+```
+
+#Suppl. Figure 5A - Shannon Index TRF study
+
+## 1. Preparation
+```{r}
+# TRF project
+meta_mean_ASV_TRF
+meta_mean_ASV_TRF$genotype_group <- factor(meta_mean_ASV_TRF$genotype_group, levels = c("WT", "IL10-/-"), order = T)
+meta_mean_ASV_TRF <- meta_mean_ASV_TRF %>% mutate(diet_genotype = interaction(genotype_group, diet, sep = "_")) %>% relocate(diet_genotype, .after = "genotype_group")
+meta_mean_ASV_TRF$diet_genotype <- factor(meta_mean_ASV_TRF$diet_genotype, levels = c("WT_control", "WT_TRF", "IL10-/-_control", "IL10-/-_TRF"), order = T)
+
+# calculate Shannon 
+meta_mean_ASV_TRF <- meta_mean_ASV_TRF %>% mutate(Shannon = diversity(meta_mean_ASV_TRF[15:837])) %>% relocate(Shannon, .before = 15) # or 15
+
+table(meta_mean_ASV_TRF$diet_genotype) # WT control 16, WT TRF, 15, IL10-/- control 18, IL10-/- TRF 16
+```
+
+## 2. Stats
+
+Distribution
+```{r}
+shapiro.test(meta_mean_ASV_TRF$Shannon) # p-value = 0.5752
+ad.test(meta_mean_ASV_TRF$Shannon) # p-value = 0.6218
+hist(meta_mean_ASV_TRF$Shannon) # -> normal distribution 
+```
+
+Summary stats & pairwise testing
+```{r}
+meta_mean_ASV_TRF %>% group_by(diet_genotype) %>% get_summary_stats(Shannon, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd))
+
+meta_mean_ASV_TRF %>% group_by(genotype_group) %>% pairwise_t_test(Shannon ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") # in WT: TRF effect 0.004600	**; in IL10ko: 0.001154	**
+meta_mean_ASV_TRF %>% group_by(diet) %>% pairwise_t_test(Shannon ~ genotype_group) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") # in AL: IL10ko effect ns, in TRF: IL10ko effect ns
+# so overall no IL10 deficiency effect, but effect of TRF independent of genotype (increased Shannon)
+```
+
+## 3 Plot
+
+```{r}
+pdf("Shannon_TRF_Passage.pdf", width = 9, height=6)
+
+meta_mean_ASV_TRF %>%
+	ggplot(aes(x = diet, y = Shannon)) + 
+	  geom_boxplot(aes(color = diet_genotype, fill = diet_genotype), alpha = 0.2, lwd=1.5, width=0.6, outlier.shape = NA) +
+	  geom_point(aes(color = diet_genotype), size = 2.5) +
+	  scale_color_manual(values = TRF_colors) +
+    scale_fill_manual(values = TRF_colors) +
+	  scale_x_discrete(labels = c("control" = "RCD-AL", "TRF" = "RCD-TRF")) + 
+    labs(x = "", y = "Shannon Index") +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.3))) +
+    Settings_box +  
+    theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown()) + 
+    facet_grid(~ genotype_group)
+  
+dev.off()
+```
+
+
+#Suppl. Figure 5B - PCoA Plot TRF study
+
+## 1. Preparation
+```{r}
+# calculate relAb of ASV counts for BC 
+meta_ASV_TRF <- meta_ASV_TRF %>% filter(!sampleID %in% c("523-30min", "540-60min", "543-30min", "541-120min")) # 177 samples left (removed rarefaction-lost -> no ASV info)
+
+rownames(meta_ASV_TRF) <- NULL
+meta_ASV_TRF <- meta_ASV_TRF %>% column_to_rownames("sampleID")
+ASV_relAb <- sweep(meta_ASV_TRF[26:848], 1, rowSums(meta_ASV_TRF[26:848]),'/')
+
+
+rownames(meta_ASV_TRF) == rownames(ASV_relAb) # all TRUE 
+
+# calculate BC
+d.bray <- vegdist(ASV_relAb, na.rm = T, method = "bray") # generates dissimilarity matrix
+matrix.bray_ANOSIM <- as.matrix(d.bray) # stores output as matrix (needed for statistical testing) 
+
+# extract axis values 
+pcoa.bray <- cmdscale(d.bray, k=2, eig = TRUE) # calculates PCoA values based on Bray-Curtis Dissimilarity
+
+# generate percentages for explained variance
+explainvar1 <- round(pcoa.bray$eig[1]/sum(pcoa.bray$eig), 3)*100 
+explainvar2 <- round(pcoa.bray$eig[2]/sum(pcoa.bray$eig), 3)*100 
+
+pcoa_map <- merge(meta_ASV_TRF[1:25], pcoa.bray$points, by.x = 0, by.y = 0) %>% column_to_rownames("Row.names") # merges the PCoA variables with your filtered dataframe by the column SampleID and stores the data frame as 'pcoa_map' 
+pcoa_map$timepoint_2 <- factor(pcoa_map$timepoint_2, levels = c("30min", "90min", "150min", "210min"), order = T)
+```
+
+## 2. Stats
+```{r}
+rownames(meta_ASV_TRF) == rownames(matrix.bray_ANOSIM) # all TRUE 
+
+anosim(matrix.bray_ANOSIM, grouping = meta_ASV_TRF$diet_genotype, permutations = 999) # 0.54, 0.001 ***
+anosim(matrix.bray_ANOSIM, grouping = meta_ASV_TRF$diet, permutations = 999) # 0.57, 0.001 ***
+anosim(matrix.bray_ANOSIM, grouping = meta_ASV_TRF$genotype_group, permutations = 999) # 0.18, 0.001 ***
+
+```
+
+
+## 3. Plot
+```{r}
+pdf("PCoA_TRF.pdf", width = 9, height = 7)
+
+pcoa_map %>% 
+  ggplot(aes(V1, V2,)) +
+  geom_point(size = 4, aes(fill = diet_genotype, color = diet_genotype, shape = timepoint_2)) + 
+  stat_ellipse(geom = "polygon", alpha = .1, aes(fill = diet_genotype), show.legend = F) +
+  scale_color_manual(values = TRF_colors, name = "Diet", labels = c("WT_control" = "WT ad libitum", "WT_TRF" = "WT TRF", "IL10-/-_control" = "IL10-/- ad libitum", "IL10-/-_TRF" = "IL10-/- TRF")) +
+  scale_fill_manual(values = TRF_colors, guide = "none") +
+  labs(x = paste("PCoA 1 (" ,explainvar1, "%)", sep = ""), y = paste("PCoA 2 (" ,explainvar2, "%)", sep = "")) +
+  Settings_PCoA +  
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+
+dev.off()
+
+```
+
+
+
+#Suppl. Figure 7 - dbRDA diet & TRF study controlled for project
+--> see Figure 6C 
