@@ -1,0 +1,304 @@
+---
+title: "Preprocessing"
+output: html_document
+date: "2026-01-25"
+---
+
+
+# 1. QIIME2 Preprocessing
+
+all QIIME2 v. 2019.7
+
+## 1.1 Diet study 
+
+```{r, eval = F}
+# Import read data as artefacts
+qiime tools import \
+--type 'SampleData[PairedEndSequencesWithQuality]' 
+--input-path raw_data/ 
+--input-format CasavaOneEightSingleLanePerSampleDirFmt 
+--output-path processing/demux-paired-end.qza
+```
+
+```{r, eval = F}
+# Denoise data with dada2 plug-in 
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs demux-paired-end.qza \
+  --p-trim-left-f 20 \
+  --p-trim-left-r 24 \
+  --p-trunc-len-f 284 \
+  --p-trunc-len-r 215 \
+  --o-representative-sequences rep-seqs.qza \
+  --o-table table.qza \
+  --o-denoising-stats stats.qza \
+  --p-n-threads 8
+```
+
+```{r,eval = F}
+# Filter features
+qiime feature-table filter-features \
+  --i-table table.qza \
+  --p-min-frequency 80 \
+  --o-filtered-table feature-frequency-filtered-table.qza
+```
+
+```{r, eval = F}
+# Create phylogenetic tree
+qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences rep-seqs.qza \
+  --o-alignment aligned-rep-seqs.qza \
+  --o-masked-alignment masked-aligned-rep-seqs.qza \
+  --o-tree unrooted-tree.qza \
+  --o-rooted-tree rooted-tree.qza
+  --p-n-threads 5
+```
+
+```{r, eval = F}
+# Alpha rarefraction
+qiime diversity alpha-rarefaction \
+  --i-table feature-frequency-filtered-table.qza \
+  --i-phylogeny rooted-tree.qza \
+  --p-max-depth 20650 \
+  --m-metadata-file qiimemetadata.txt \
+  --o-visualization alpha-rarefaction-filtered.qzv
+# 4 samples lost: 271-4-2h, 281-7-2h, 293-7-2h, 245-7-1h at rarefaction depth 4095
+```
+
+```{r, eval = F}
+# Core Metrics Analysis
+qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny rooted-tree.qza \
+  --i-table feature-frequency-filtered-table.qza \
+  --p-sampling-depth 4095 \
+  --m-metadata-file qiimemetadata.txt \
+  --output-dir core-metrics-results
+```
+
+```{r, eval = F}
+# Taxonomy Analysis (Silva database) 
+qiime feature-classifier classify-sklearn \
+  --i-classifier /mnt/nfs/virdi/nutrigenomics_data/db_references/qiime/silva/silva-132-99-nb-classifier.Q2019.7.qza \
+  --i-reads rep-seqs.qza \
+  --o-classification taxonomy.qza
+```
+
+```{r, eval = F}
+# Export feature tables for R 
+qiime tools export \
+--input-path  table-r-rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o table-r-rarefied.tsv --to-tsv
+```
+
+```{r, eval = F}
+# Collapse feature table to L6 genus level and export
+qiime taxa collapse \
+--i-table table-r-rarefied.qza \
+--i-taxonomy taxonomy.qza \
+--p-level 6 \
+--o-collapsed-table level6_rarefied.qza
+
+qiime tools export \
+--input-path  level6_rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o level6_rarefied.tsv --to-tsv
+```
+
+
+## 1.2 TRF study 
+
+```{r, eval = F}
+# Import read data as artefacts
+qiime tools import \
+--type 'SampleData[PairedEndSequencesWithQuality]' \
+--input-path raw_ALL \
+--input-format CasavaOneEightSingleLanePerSampleDirFmt \
+--output-path demux-paired-end.qza
+```
+
+```{r, eval = F}
+# Denoise data with dada2 plug-in
+qiime dada2 denoise-paired \
+--i-demultiplexed-seqs demux-paired-end.qza \
+--p-trim-left-f 16 \
+--p-trim-left-r 24 \
+--p-trunc-len-f 289 \
+--p-trunc-len-r 241 \
+--o-representative-sequences rep-seqs.qza \
+--o-table table.qza \
+--o-denoising-stats stats.qza \
+--p-n-threads 8
+```
+
+```{r, eval = F}
+# Phylogenetic tree
+qiime phylogeny align-to-tree-mafft-fasttree \
+--i-sequences rep-seqs.qza \
+--o-alignment aligned-rep-seqs.qza \
+--o-masked-alignment masked-aligned-rep-seqs.qza \
+--o-tree unrooted-tree.qza \
+--o-rooted-tree rooted-tree.qza \
+--p-n-threads 5
+```
+
+```{r, eval = F}
+# Alpha rarefraction
+qiime diversity alpha-rarefaction \
+--i-table table.qza \
+--i-phylogeny rooted-tree.qza \
+--p-max-depth 2000 \
+--m-metadata-file metadata_qiime2.tsv \
+--o-visualization alpha-rarefaction.qzv
+# 3 samples lost: 523-30min, 543-30min, 541-120min (+ 3 NTCS) at rarefaction depth 1670 
+```
+
+```{r, eval = F}
+# Core Metrics Analysis
+qiime diversity core-metrics-phylogenetic \
+--i-phylogeny rooted-tree.qza \
+--i-table table.qza \
+--p-sampling-depth 1670 \
+--m-metadata-file metadata_qiime2.tsv \
+--output-dir core-metrics-results
+```
+
+```{r, eval = F}
+# Taxonomy Analysis (Silva database)
+qiime feature-classifier classify-sklearn \
+--i-classifier /mnt/nfs/virdi/nutrigenomics_data/db_references/qiime/silva/silva-132-99-nb-classifier.Q2019.7.qza \
+--i-reads rep-seqs.qza \
+--o-classification taxonomy.qza 
+```
+
+```{r, eval = F}
+# Export feature tables for R
+qiime tools export \
+--input-path table-r-rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o table-r-rarefied.tsv --to-tsv
+```
+
+```{r, eval = F}
+# Collapse feature table and export
+# level 6 - genus
+qiime taxa collapse \
+--i-table table-r-rarefied.qza \
+--i-taxonomy taxonomy/taxonomy.qza \
+--p-level 6 \
+--o-collapsed-table level6_rarefied.qza
+
+qiime tools export \
+--input-path level6_rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o level6_rarefied.tsv --to-tsv
+```
+
+
+## 1.3 Studies combined 
+
+```{r, eval = F}
+# Import read data as artefacts
+qiime tools import \
+--type 'SampleData[PairedEndSequencesWithQuality]' \
+--input-path raw_ALL \
+--input-format CasavaOneEightSingleLanePerSampleDirFmt \
+--output-path demux-paired-end.qza
+```
+
+```{r, eval = F}
+# Denoise data with dada2 plug-in
+qiime dada2 denoise-paired \
+--i-demultiplexed-seqs demux-paired-end.qza \
+--p-trim-left-f 20 \
+--p-trim-left-r 24 \
+--p-trunc-len-f 281 \
+--p-trunc-len-r 221 \
+--o-representative-sequences rep-seqs-dada2-1.qza \
+--o-table table-dada2-1.qza \
+--o-denoising-stats stats-dada2-1.qza \
+--p-n-threads 8
+```
+
+```{r, eval = F}
+# Phylogenetic tree
+qiime phylogeny align-to-tree-mafft-fasttree \
+--i-sequences rep-seqs.qza \
+--o-alignment aligned-rep-seqs.qza \
+--o-masked-alignment masked-aligned-rep-seqs.qza \
+--o-tree unrooted-tree.qza \
+--o-rooted-tree rooted-tree.qza \
+--p-n-threads 5
+```
+
+```{r, eval = F}
+# Alpha rarefraction
+qiime diversity alpha-rarefaction \
+--i-table table.qza \
+--i-phylogeny rooted-tree.qza \
+--p-max-depth 2100 \
+--m-metadata-file metadata_2024Oct.txt \
+--o-visualization alpha-rarefaction-4.qzv
+# 7 samples lost: 271-4-2h, 281-7-2h, 293-7-2h, 245-7-1h, 523-30min, 543-30min, 541-120min at rarefaction depth 2027
+```
+
+```{r, eval = F}
+# Core Metrics Analysis
+qiime diversity core-metrics-phylogenetic \
+--i-phylogeny rooted-tree.qza \
+--i-table table.qza \
+--p-sampling-depth 2027 \
+--m-metadata-file metadata_2024Oct.txt \
+--output-dir core-metrics-results
+```
+
+```{r, eval = F}
+# Taxonomy Analysis (Silva database)
+qiime feature-classifier classify-sklearn \
+--i-classifier /mnt/nfs/virdi/nutrigenomics_data/db_references/qiime/silva/silva-132-99-nb-classifier.Q2019.7.qza \
+--i-reads rep-seqs.qza \
+--o-classification taxonomy.qza 
+```
+
+```{r, eval = F}
+# Export feature tables for R
+qiime tools export \
+--input-path table-r-rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o table-r-rarefied.tsv --to-tsv
+```
+
+```{r, eval = F}
+# Collapse feature table and export
+
+# level 2 - phylum 
+qiime taxa collapse \
+--i-table table-r-rarefied.qza \
+--i-taxonomy taxonomy.qza \
+--p-level 2 \
+--o-collapsed-table level2_rarefied.qza
+
+qiime tools export \
+--input-path level2_rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o level2_rarefied.tsv --to-tsv
+
+# level 6 - genus
+qiime taxa collapse \
+--i-table table-r-rarefied.qza \
+--i-taxonomy taxonomy/taxonomy.qza \
+--p-level 6 \
+--o-collapsed-table level6_rarefied.qza
+
+qiime tools export \
+--input-path level6_rarefied.qza \
+--output-path .
+
+biom convert -i feature-table.biom -o level6_rarefied.tsv --to-tsv
+```
+
