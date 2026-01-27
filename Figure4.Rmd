@@ -1,0 +1,429 @@
+---
+title: "Figure 4"
+output: html_document
+date: "2026-01-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Figure 4A - Linear regression
+
+##1. diet study
+###1.1 Preparation
+```{r}
+vars_to_normalize <- c("Fecal_Mass", "Microbiota_Excretion", "Microbial_Load", "Transit_Time")
+
+QMPs_ileum_diet_fold <- diet_data_ileum %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+
+QMPs_colon_diet_fold <- diet_data_colon %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+```
+
+###1.2 Linear Regression
+```{r}
+
+variables <- c("Fecal_Mass", "Microbiota_Excretion", "Microbial_Load", "Transit_Time")
+
+effect_results_diet <- list()
+emmeans_results_diet <- list()
+
+for (var in variables) {
+  lm_data <- QMPs_ileum_diet_fold %>%
+    mutate(
+      logY = log10(.data[[var]]),
+      diet = factor(diet)
+    )
+  fit <- lm(logY ~ diet, data = lm_data)
+  
+  res <- tidy(fit) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(variable = var)
+  effect_results_diet[[var]] <- res
+  
+  emm <- emmeans(fit, ~ diet)
+  
+  pairs_res <- pairs(emm) %>% as.data.frame() %>% mutate(variable = var)
+  emmeans_results_diet[[var]] <- pairs_res
+}
+
+effect_results_diet <- bind_rows(effect_results_diet)
+emmeans_results_diet <- bind_rows(emmeans_results_diet)
+
+effect_results_diet <- effect_results_diet %>%
+  group_by(variable) %>%
+  mutate(FDR = p.adjust(p.value, method = "fdr")) %>%
+  ungroup()
+
+```
+
+### 3.1 Plot
+```{r}
+plot_df_diet <- effect_results_diet %>%
+  mutate(
+    lower.CL = estimate - 1.96 * std.error,
+    upper.CL = estimate + 1.96 * std.error
+  )
+
+diet_labels <- c(
+  "dietfasting"    = "Fasting",
+  "diethigh_fat"   = "HFaD",
+  "diethigh_fiber" = "HFiD"
+)
+
+qmp_labels <- c(
+  "Microbial_Load" = "Fecal Bacterial Load\n [16S rRNA GCN/g per GI passage]",
+  "Microbiota_Excretion" = "Bacterial Microbiota Excretion\n [16S rRNA GCN per GI passage]",
+  "Transit_Time" = "GI Transit Time\n [min]",
+  "Fecal_Mass" = "Fecal Mass\n [g per GI passage]"
+)
+
+plot_df_diet <- plot_df_diet %>%
+  mutate(effect_color = ifelse(estimate < 0, "lower", "higher"))
+
+plot_df_diet <- plot_df_diet %>%
+  mutate(sig = FDR < 0.1)
+
+
+plot_df_diet$variable <- factor(plot_df_diet$variable, levels = c("Transit_Time", "Fecal_Mass", "Microbial_Load", "Microbiota_Excretion"))
+plot_df_diet$term <- factor(plot_df_diet$term, levels = c("diethigh_fiber", "diethigh_fat", "dietfasting"))
+
+
+pdf("QMPs_LM_diet_norm.pdf", width = 16, height=6)
+ggplot(plot_df_diet, aes(y = term, x = estimate, color = effect_color, shape = sig, fill = effect_color)) +
+  geom_point(size = 2) +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.2, color = "grey40") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Effect size (estimate, 95% CI)",
+    y = "",
+    title = ""
+  ) +
+  scale_shape_manual(
+    values = c("TRUE" = 21, "FALSE" = 1)) +
+  facet_wrap(~ variable, ncol = 4, labeller = as_labeller(qmp_labels)) +
+  scale_fill_manual(
+    values = c("lower" = "red", "higher" = "royalblue")
+  ) +
+  scale_color_manual(
+    values = c("lower" = "red", "higher" = "royalblue"),
+    labels = c("lower" = "Lower than control", "higher" = "Higher than control"),
+  ) +
+  scale_y_discrete(labels = diet_labels) + 
+   scale_x_continuous(limits = c(-0.75, 0.75),  breaks = c(-0.5, 0, 0.5))+
+  Settings_forest
+dev.off()
+
+```
+
+
+##2. TRF study
+###2.1 Preparation
+```{r}
+vars_to_normalize <- c("Fecal_Mass", "Microbiota_Excretion", "Microbial_Load", "Transit_Time")
+
+QMPs_ileum_TRF_fold <- TRF_data_ileum %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control" & genotype_group == "WT"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+
+QMPs_colon_TRF_fold <- TRF_data_colon %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control" & genotype_group == "WT"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+
+QMPs_ileum_TRF_fold <- QMPs_ileum_TRF_fold %>%
+  mutate(diet_genotype = paste(diet, genotype_group, sep = "_"))
+```
+
+###2.2 Linear Regression
+```{r}
+variables <- c("Transit_Time", "Fecal_Mass", "Microbial_Load", "Microbiota_Excretion")
+
+effect_results_TRF <- list()
+emmeans_results_TRF <- list()
+
+for (var in variables) {
+  lm_data <- QMPs_ileum_TRF_fold %>%
+    mutate(
+      logY = log10(.data[[var]]),
+      diet_genotype = factor(diet_genotype),                
+      )
+  fit <- lm(logY ~ diet_genotype, data = lm_data)
+  
+  res <- tidy(fit) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(variable = var)
+  effect_results_TRF[[var]] <- res
+  
+  emm <- emmeans(fit, ~ diet_genotype)
+  
+  pairs_res <- pairs(emm) %>% as.data.frame() %>% mutate(variable = var)
+  emmeans_results_TRF[[var]] <- pairs_res
+}
+
+effect_results_TRF <- bind_rows(effect_results_TRF)
+emmeans_results_TRF <- bind_rows(emmeans_results_TRF)
+
+effect_results_TRF <- effect_results_TRF %>%
+  group_by(variable) %>%
+  mutate(FDR = p.adjust(p.value, method = "fdr")) %>%
+  ungroup()
+```
+
+###2.3 Plot
+```{r}
+effect_results_TRF <- filter(effect_results_TRF, term != "diet_genotypeTRF_IL10-/-") # only plot effect of TRF on WT mice and genotype effect (--> exclude IL10KO mice with TRF)
+
+plot_df_TRF <- effect_results_TRF %>%
+  mutate(
+    lower.CL = estimate - 1.96 * std.error,
+    upper.CL = estimate + 1.96 * std.error
+  )
+
+TRF_labels <- c(
+  "diet_genotypeTRF_WT"    = "TRF",
+  "diet_genotypecontrol_IL10-/-"   = "Fasting"
+                                      
+)
+
+qmp_labels <- c(
+  "Microbial Load" = "Fecal Bacterial Load\n [16S rRNA GCN/g per GI passage]",
+  "Microbiota Excretion" = "Bacterial Microbiota Excretion\n [16S rRNA GCN per GI passage]",
+  "Transit Time" = "GI Transit Time\n [min]",
+  "Fecal Mass" = "Fecal Mass\n [g per GI passage]"
+)
+
+plot_df_TRF <- plot_df_TRF %>%
+  mutate(effect_color = ifelse(estimate < 0, "lower", "higher"))
+
+plot_df_TRF <- plot_df_TRF %>%
+  mutate(sig = FDR < 0.1)
+
+plot_df_TRF$variable <- factor(plot_df_TRF$variable, levels = c("Transit_Time", "Fecal_Mass", "Microbial_Load", "Microbiota_Excretion"))
+
+
+pdf("QMPs_LM_TRF_norm.pdf", width = 16, height=6)
+ggplot(plot_df_TRF, aes(y = term, x = estimate, color = effect_color, shape = sig, fill = effect_color)) +
+  geom_point(size = 2) +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.2, color = "grey40") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Effect size (estimate, 95% CI)",
+    y = "",
+    title = ""
+  ) +
+  scale_shape_manual(
+    values = c("TRUE" = 21, "FALSE" = 1)) +
+  facet_wrap(~ variable, ncol = 4, labeller = as_labeller(qmp_labels)) +
+  scale_fill_manual(
+    values = c("lower" = "red", "higher" = "royalblue")
+  ) +
+  scale_color_manual(
+    values = c("lower" = "red", "higher" = "royalblue"),
+    labels = c("lower" = "Lower than control", "higher" = "Higher than control"),
+  ) +
+  scale_y_discrete(labels = TRF_labels) + 
+   scale_x_continuous(limits = c(-0.75, 0.75),  breaks = c(-0.5, 0, 0.5))+
+  Settings_forest
+dev.off()
+```
+
+# Figure 4B - QMP - QMP Correlations
+
+## 1. Preparation
+```{r}
+meta_comb_passage <- metadata_QP_passage %>% filter(project == "diet_study" | project == "TRF_study") %>% filter(genotype_group == "WT") 
+
+# normalized fold change
+qmp_vars <- c("Microbiota_Excretion", "Microbial_Load", "Transit_Time", "Fecal_Mass")
+
+meta_comb_passage_norm <- meta_comb_passage %>%
+  group_by(project) %>%
+  mutate(across(all_of(qmp_vars),
+                ~ .x / mean(.x[diet == "control"], na.rm = TRUE),
+                .names = "{.col}_norm")) %>%
+  ungroup()
+
+table(meta_comb_passage_norm$diet)
+
+meta_comb_passage_norm <- meta_comb_passage_norm %>%
+  # for control diet of TRF study, rename into AL
+  mutate(diet = case_when(diet == "control" & project == "TRF_study" ~ "AL", TRUE ~ diet)) # 
+
+```
+
+
+## 2. Stats
+
+normalized (fold change relative to respective control diet) 
+*all data*
+```{r}
+# transit time
+rbind(
+(cor_test(meta_comb_passage_norm, Transit_Time_norm, Microbiota_Excretion_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")), 
+(cor_test(meta_comb_passage_norm, Transit_Time_norm, Microbial_Load_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")), 
+(cor_test(meta_comb_passage_norm, Transit_Time_norm, Fecal_Mass_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")))
+
+# other QMPs
+rbind(
+(cor_test(meta_comb_passage_norm, Microbiota_Excretion_norm, Fecal_Mass_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")), 
+(cor_test(meta_comb_passage_norm, Microbiota_Excretion_norm, Microbial_Load_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")), 
+(cor_test(meta_comb_passage_norm, Microbial_Load_norm, Fecal_Mass_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")))
+
+```
+
+*w/o hfat & hfid*
+```{r}
+# transit time
+rbind(
+(meta_comb_passage_norm %>% filter(diet != "high_fiber" & diet != "high_fat") %>% cor_test(Transit_Time_norm, Microbiota_Excretion_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")),
+(meta_comb_passage_norm %>% filter(diet != "high_fiber" & diet != "high_fat") %>% cor_test(Transit_Time_norm, Microbial_Load_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")),
+(meta_comb_passage_norm %>% filter(diet != "high_fiber" & diet != "high_fat") %>% cor_test(Transit_Time_norm, Fecal_Mass_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")))
+
+# other QMPs
+rbind(
+(meta_comb_passage_norm %>% filter(diet != "high_fiber" & diet != "high_fat") %>% cor_test(Microbiota_Excretion_norm, Fecal_Mass_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")),
+(meta_comb_passage_norm %>% filter(diet != "high_fiber" & diet != "high_fat") %>% cor_test(Microbiota_Excretion_norm, Microbial_Load_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")),
+(meta_comb_passage_norm %>% filter(diet != "high_fiber" & diet != "high_fat") %>% cor_test(Microbial_Load_norm, Fecal_Mass_norm, method = "spearman") %>%  adjust_pvalue(method = "BH") %>% add_significance("p.adj")))
+
+```
+
+## 3. Plots
+
+```{r}
+# microbiota excretion (GCN) - microbial load (GCN/g)
+p1 <- meta_comb_passage_norm %>% 
+  mutate(diet_fat_fiber = case_when(diet %in% c("high_fat", "high_fiber") ~ "high_fat_fiber", TRUE ~ "other")) %>%
+  
+  ggplot(aes(Microbial_Load_norm, Microbiota_Excretion_norm)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  
+  geom_smooth(data = . %>% filter(diet_fat_fiber == "other"), method = 'lm', color = 'black', linewidth = 1, se = F) +  
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", linewidth = 1, se = F) +
+  
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  
+  labs(x = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per GI Passage]</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+# microbiota excretion (GCN) - fecal mass
+p2 <- meta_comb_passage_norm %>% 
+  mutate(diet_fat_fiber = case_when(diet %in% c("high_fat", "high_fiber") ~ "high_fat_fiber", TRUE ~ "other")) %>%
+  
+  ggplot(aes(Fecal_Mass_norm, Microbiota_Excretion_norm)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  
+  geom_smooth(data = . %>% filter(diet_fat_fiber == "other"), method = 'lm', color = 'black', linewidth = 1, se = F) +  
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", linewidth = 1, se = F) +
+  
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  
+  labs(x = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per GI Passage]</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+# fecal bacterial load (GCN/g) - fecal mass
+p3 <- meta_comb_passage_norm %>% 
+  mutate(diet_fat_fiber = case_when(diet %in% c("high_fat", "high_fiber") ~ "high_fat_fiber", TRUE ~ "other")) %>%
+  
+  ggplot(aes(Fecal_Mass_norm, Microbial_Load_norm)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  
+  #geom_smooth(data = . %>% filter(diet_fat_fiber == "other"), method = 'lm', color = 'black', se = F) +  
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", linewidth = 1, se = F) +
+  
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+
+  labs(x = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+
+```
+
+```{r}
+# transit - microbiota excretion
+p4 <- meta_comb_passage_norm %>% 
+  mutate(diet_fat_fiber = case_when(diet %in% c("high_fat", "high_fiber") ~ "high_fat_fiber", TRUE ~ "other")) %>%
+  
+  ggplot(aes(Transit_Time_norm, Microbiota_Excretion_norm)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  
+  geom_smooth(data = . %>% filter(diet_fat_fiber == "other"), method = 'lm', color = 'black', linewidth = 1, se = F) +  
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", linewidth = 1, se = F) +
+  
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+
+  labs(x = paste0("<span style='font-size: 25pt'>GI Transit Time</span><br><span style='font-size: 20pt'>[min]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per GI Passage]</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+# transit - microbial load (GCN/g)
+p5 <- meta_comb_passage_norm %>% 
+  mutate(diet_fat_fiber = case_when(diet %in% c("high_fat", "high_fiber") ~ "high_fat_fiber", TRUE ~ "other")) %>%
+  
+  ggplot(aes(Transit_Time_norm, Microbial_Load_norm)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  
+  geom_smooth(data = . %>% filter(diet_fat_fiber == "other"), method = 'lm', color = 'black', linewidth = 1, se = F) +  
+  geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", linewidth = 1, se = F) +
+  
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+
+  labs(x = paste0("<span style='font-size: 25pt'>GI Transit Time</span><br><span style='font-size: 20pt'>[min]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+# transit - fecal mass
+p6 <- meta_comb_passage_norm %>% 
+  mutate(diet_fat_fiber = case_when(diet %in% c("high_fat", "high_fiber") ~ "high_fat_fiber", TRUE ~ "other")) %>%
+  
+  ggplot(aes(Transit_Time_norm, Fecal_Mass_norm)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  
+  # exclude lines because all ns 
+  #geom_smooth(data = . %>% filter(diet_fat_fiber == "other"), method = 'lm', color = 'black', se = F) +  
+  #geom_smooth(method = 'lm', color = 'grey50', linetype = "dashed", se = F) +
+  
+  scale_color_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+  scale_fill_manual(values = Diet_AL_TRF_colors,  name = "Diet", labels = Diet_AL_TRF_labels) +
+
+  labs(x = paste0("<span style='font-size: 25pt'>GI Transit Time</span><br><span style='font-size: 20pt'>[min]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+```
+
+
+```{r}
+# export plot
+pdf("QMP_QMP_corr_grid_norm_w_wo_fatfiber.pdf", width = 20, height = 18)
+cowplot::plot_grid(plotlist = cowplot::align_plots(p1, p2, p3, p4, p5, p6, align = "hv", axis = "tblr"), ncol = 3, rel_widths = c(1, 1, 1))
+dev.off()
+
+```
