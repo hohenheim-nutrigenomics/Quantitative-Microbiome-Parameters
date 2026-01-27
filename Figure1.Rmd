@@ -1,0 +1,512 @@
+---
+title: "Figure 1"
+output: html_document
+date: "2026-01-16"
+---
+
+# Figure 1C - QMPs diet study
+
+## 1. Preparation
+
+```{r}
+meta_Diet_passage <- metadata_QP_passage %>% filter(project == "diet_study") # 32 samples
+```
+
+```{r}
+table(meta_Diet_passage$diet) # 8 mice per diet group
+```
+
+## 2. Stats
+Distribution
+```{r}
+# Microbiota_Excretion -> non-normal 
+shapiro.test(meta_Diet_passage$Microbiota_Excretion) # p-value = 0.0008163
+ad.test(meta_Diet_passage$Microbiota_Excretion) # p-value = 0.0003437
+#hist(meta_Diet_passage$Microbiota_Excretion)
+  
+# Microbial_Load -> non-normal 
+shapiro.test(meta_Diet_passage$Microbial_Load) # p-value = 0.04982
+ad.test(meta_Diet_passage$Microbial_Load) # p-value = 0.09703
+#hist(meta_Diet_passage$Microbial_Load)
+
+# Fecal_Mass -> non-normal 
+shapiro.test(meta_Diet_passage$Fecal_Mass) # p-value = 0.0001497
+ad.test(meta_Diet_passage$Fecal_Mass) # p-value = 2.42e-05
+#hist(meta_Diet_passage$Fecal_Mass)
+
+# Transit_Time -> normal 
+shapiro.test(meta_Diet_passage$Transit_Time) # p-value = 0.2866
+ad.test(meta_Diet_passage$Transit_Time) # p-value = 0.5114
+#hist(meta_Diet_passage$Transit_Time)
+```
+
+Summary stats
+```{r}
+meta_Diet_passage %>% group_by(diet) %>% get_summary_stats(Microbiota_Excretion, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd))
+meta_Diet_passage %>% group_by(diet) %>% get_summary_stats(Microbial_Load, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd))
+meta_Diet_passage %>% group_by(diet) %>% get_summary_stats(Fecal_Mass, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd))
+meta_Diet_passage %>% group_by(diet) %>% get_summary_stats(Transit_Time, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd))
+
+```
+
+Pairwise testing
+```{r}
+meta_Diet_passage %>% pairwise_wilcox_test(Microbiota_Excretion ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+meta_Diet_passage %>% pairwise_wilcox_test(Microbial_Load ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+meta_Diet_passage %>% pairwise_wilcox_test(Fecal_Mass ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+meta_Diet_passage %>% pairwise_t_test(Transit_Time ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj")
+
+```
+
+
+## 3. Plots
+```{r}
+# Microbiota_Excretion
+pdf("Microbiota_Excretion_Diet_passage.pdf", width = 9, height = 6)
+
+meta_Diet_passage %>%
+	ggplot(aes(x = diet, y = Microbiota_Excretion)) + 
+	  geom_boxplot(aes(color = diet, fill = diet), alpha = 0.2, lwd=1.5, width=0.6, outlier.shape = NA) +
+	  geom_point(aes(color = diet), size = 2.5) +
+	  scale_color_manual(values = Diet_colors, name = "Diet") +
+    scale_fill_manual(values = Diet_colors) +
+	  scale_x_discrete(labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    labs(x = "", y = paste0("<span style='font-size: 25pt'>Microbiota Excretion</span><br><span style='font-size: 20pt'>[16S rRNA GCN per GI Passage]</span>")) +
+    scale_y_continuous(labels = scales::label_scientific(digits = 1), expand = expansion(mult = c(0.05, 0.45))) +
+    Settings_box +  
+    theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+  
+dev.off()
+
+# Microbial_Load
+pdf("Microbial_Load_Diet_passage.pdf", width = 9, height = 6)
+
+meta_Diet_passage %>%
+	ggplot(aes(x = diet, y = Microbial_Load)) + 
+	  geom_boxplot(aes(color = diet, fill = diet), alpha = 0.2, lwd=1.5, width=0.6, outlier.shape = NA) +
+	  geom_point(aes(color = diet), size = 2.5) +
+	  scale_color_manual(values = Diet_colors, name = "Diet") +
+    scale_fill_manual(values = Diet_colors) +
+	  scale_x_discrete(labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    labs(x = "", y = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>")) +
+    scale_y_continuous(labels = scales::label_scientific(digits = 1), expand = expansion(mult = c(0.05, 0.65))) +
+    Settings_box +  
+    theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+  
+dev.off()
+
+
+# Fecal_Mass
+pdf("Stool_Diet_passage.pdf", width = 9, height = 6)
+
+meta_Diet_passage %>%
+	ggplot(aes(x = diet, y = Fecal_Mass)) + 
+	  geom_boxplot(aes(color = diet, fill = diet), alpha = 0.2, lwd=1.5, width=0.6, outlier.shape = NA) +
+	  geom_point(aes(color = diet), size = 2.5) +
+	  scale_color_manual(values = Diet_colors, name = "Diet") +
+    scale_fill_manual(values = Diet_colors) +
+	  scale_x_discrete(labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    labs(x = "", y = paste0("<span style='font-size: 25pt'>Fecal Mass</span><br><span style='font-size: 20pt'>[g per GI Passage]</span>")) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.75))) +
+    Settings_box +  
+    theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+  
+dev.off()
+
+# transit
+pdf("Transit_Diet_passage.pdf", width = 9, height = 6)
+
+meta_Diet_passage %>%
+	ggplot(aes(x = diet, y = Transit_Time)) + 
+	  geom_boxplot(aes(color = diet, fill = diet), alpha = 0.2, lwd=1.5, width=0.6, outlier.shape = NA) +
+	  geom_point(aes(color = diet), size = 2.5) +
+	  scale_color_manual(values = Diet_colors, name = "Diet") +
+    scale_fill_manual(values = Diet_colors) +
+	  scale_x_discrete(labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    labs(x = "", y = paste0("<span style='font-size: 25pt'>GI Transit Time</span><br><span style='font-size: 20pt'>[min]</span>")) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.35)), breaks = c(60,120, 180, 240, 300, 360)) +
+    Settings_box +  
+    theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+  
+dev.off()
+```
+
+
+
+# Figure 1D - Shannon Index diet study
+## 1. Preparation 
+
+Load and prepare data 
+```{r}
+meta_mean_ASV_Diet 
+
+# Calculate Shannon Index
+meta_mean_ASV_Diet <- meta_mean_ASV_Diet %>% mutate(Shannon = diversity(meta_mean_ASV_Diet[11:580])) %>% relocate(Shannon, .before = 11)
+```
+
+## 2. Stats
+Distribution
+```{r}
+shapiro.test(meta_mean_ASV_Diet$Shannon) # p-value = 0.1815
+ad.test(meta_mean_ASV_Diet$Shannon) # p-value = 0.1447
+hist(meta_mean_ASV_Diet$Shannon) # -> normal distribution (more or less)
+table(meta_mean_ASV_Diet$diet) # each diet n=8
+```
+
+```{r}
+# summary stats
+meta_mean_ASV_Diet %>% group_by(diet) %>% get_summary_stats(Shannon, type = "mean_sd") %>% mutate(mean_sd = sprintf("%s ± %s", mean, sd))
+# pairwise comparison
+meta_mean_ASV_Diet %>% pairwise_t_test(Shannon ~ diet) %>% adjust_pvalue(method = "BH") %>% add_significance("p.adj") 
+
+```
+
+## 3. Plot
+
+```{r}
+pdf("Shannon_Diet_Passage.pdf", width = 9, height = 6)
+
+meta_mean_ASV_Diet %>%
+	ggplot(aes(x = diet, y = Shannon)) + 
+	  geom_boxplot(aes(color = diet, fill = diet), alpha = 0.2, lwd=1.5, width=0.6, outlier.shape = NA) +
+	  geom_point(aes(color = diet), size = 2.5) +
+	  scale_color_manual(values = Diet_colors, name = "Diet") +
+    scale_fill_manual(values = Diet_colors) +
+	  scale_x_discrete(labels = c("control" = "RCD", "fasting" = "Fasting", "high_fiber" = "HFiD", "high_fat" = "HFaD")) + 
+    labs(x = "", y = "Shannon Index") +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.6))) +
+    Settings_box +  
+    theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
+  
+dev.off()
+```
+
+
+# Figure 1E - PCoA diet study
+
+
+## 1. Preparation
+```{r}
+# calculate relAb of ASV counts for BC 
+meta_ASV_Diet <- meta_ASV_Diet %>% filter(!sampleID %in% c("281-7-2h", "293-7-2h", "245-7-1h")) # 85 samples left 
+rownames(meta_ASV_Diet) <- NULL
+meta_ASV_Diet <- meta_ASV_Diet %>% column_to_rownames("sampleID")
+
+ASV_relAb <- sweep(meta_ASV_Diet[25:594], 1, rowSums(meta_ASV_Diet[25:594]),'/')
+
+rownames(meta_ASV_Diet) == rownames(ASV_relAb) # all TRUE 
+
+# calculate BC
+d.bray <- vegdist(ASV_relAb, na.rm = T, method = "bray") # generates dissimilarity matrix
+matrix.bray_ANOSIM <- as.matrix(d.bray) # stores output as matrix (needed for statistical testing) 
+
+# extract axis values 
+pcoa.bray <- cmdscale(d.bray, k=2, eig = TRUE) # calculates PCoA values based on Bray-Curtis Dissimilarity
+
+# generate percentages for explained variance
+explainvar1 <- round(pcoa.bray$eig[1]/sum(pcoa.bray$eig), 3)*100 
+explainvar2 <- round(pcoa.bray$eig[2]/sum(pcoa.bray$eig), 3)*100 
+
+pcoa_map <- merge(meta_ASV_Diet[1:24], pcoa.bray$points, by.x = 0, by.y = 0) %>% column_to_rownames("Row.names") 
+```
+
+
+## 2. Stats 
+```{r}
+rownames(meta_ASV_Diet) == rownames(matrix.bray_ANOSIM) # all TRUE 
+
+anosim(matrix.bray_ANOSIM, grouping = meta_ASV_Diet$diet, permutations = 999) # 0.9454, 0.001 ***
+```
+
+## 3. Plot
+```{r}
+pdf("PCoA_Diet.pdf", width = 11, height = 7)
+
+pcoa_map %>% 
+  ggplot(aes(V1, V2,)) +
+  geom_point(size = 4, aes(fill = diet, color = diet)) + 
+  stat_ellipse(geom = "polygon", alpha = .1, aes(fill = diet), show.legend = F) +
+  scale_fill_manual(values = Diet_colors, name = "Diet", labels = c("control" = "Control", "fasting" = "Fasting", "high_fiber" = "High Fibre", "high_fat" = "High Fat")) +
+  scale_color_manual(values = Diet_colors, name = "Diet", labels = c("control" = "Control", "fasting" = "Fasting", "high_fiber" = "High Fibre", "high_fat" = "High Fat")) +
+
+  labs(x = paste("PCoA 1 (" ,explainvar1, "%)", sep = ""), y = paste("PCoA 2 (" ,explainvar2, "%)", sep = "")) +
+  Settings_PCoA +  
+  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), 
+        legend.title = element_text(size = 25, colour = "black"), legend.text  = element_text(size = 25, colour = "black"))
+
+dev.off()
+```
+
+
+# Figure 1F - gene expression diet study
+
+## 1. Preparation
+```{r}
+QMPs_ileum <- left_join(metadata_QP_passage, genexpression_ileum, by = "mouse")
+
+QMPs_colon <- left_join(metadata_QP_passage, genexpression_colon, by = "mouse")
+```
+
+```{r}
+diet_data_ileum <- filter(QMPs_ileum, project == "diet_study")
+diet_data_colon <- filter(QMPs_colon, project == "diet_study")
+```
+
+##2. Ileum
+###2.1 Statistics
+```{r}
+# Columns to test
+columns_to_test <- c(18:22)  
+
+pairwise_test_results <- list()
+
+for (col_num in columns_to_test) {
+  col_name <- names(diet_data_ileum)[col_num]
+  x <- diet_data_ileum[[col_num]]
+  
+  # Perform normality tests
+  shapiro_test <- shapiro.test(x)
+  ad_test <- ad.test(x)
+  
+  # Choose test type
+  if (shapiro_test$p.value > 0.05 & ad_test$p.value > 0.05) {
+    # Pairwise t-test
+    result <- pairwise.t.test(x, diet_data_ileum$diet, p.adjust.method = "BH", exact = FALSE)
+    result_raw <- pairwise.t.test(x, diet_data_ileum$diet, p.adjust.method = "none", exact = FALSE)
+    test_type <- "pairwise t-test"
+  } else {
+    # Pairwise Wilcoxon test
+    result <- pairwise.wilcox.test(x, diet_data_ileum$diet, p.adjust.method = "BH")
+    result_raw <- pairwise.wilcox.test(x, diet_data_ileum$diet, p.adjust.method = "none")
+    test_type <- "pairwise Wilcoxon test"
+  }
+  
+  # Save both corrected and uncorrected results
+  pairwise_test_results[[col_name]] <- list(
+    test = test_type,
+    p.value.matrix.adjusted = result$p.value,
+    p.value.matrix.raw = result_raw$p.value
+  )
+}
+
+# Print results
+for (col_name in names(pairwise_test_results)) {
+  cat("\nResults for:", col_name, "\n")
+  cat("Test used:", pairwise_test_results[[col_name]]$test, "\n")
+  cat("Uncorrected p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.raw)
+  cat("BH-adjusted p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.adjusted)
+}
+```
+
+### 2.2  Mean ± SD table
+```{r}
+columns_to_test <- c(17:21)  
+
+# Calculate N counts grouped by diet
+n_counts_grouped_ileum_diet <- diet_data_ileum %>%
+  group_by(diet) %>%
+  summarise(across(all_of(columns_to_test), 
+                   ~ sum(!is.na(.)), 
+                   .names = "N_{.col}")) %>%
+  ungroup()
+
+n_df_long_ileum_diet <- n_counts_grouped_ileum_diet %>%
+  pivot_longer(cols = starts_with("N_"),
+               names_to = "Variable",
+               values_to = "N") %>%
+  mutate(Variable = sub("N_", "", Variable))
+```
+
+```{r}
+# markers to summarise
+markers <- c("TLR4", "TNF", "CCL5", "CCL2", "mReg3")
+
+# 1. Calculate mean and SD by diet
+mean_diet_ileum <- diet_data_ileum %>%
+  group_by(diet) %>%
+  summarise(
+    across(
+      all_of(markers),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE)
+      )
+    ),
+    .groups = "drop"
+  )
+
+# 2. Add mean ± SD columns
+for (m in markers) {
+  mean_col <- paste0(m, "_mean")
+  sd_col   <- paste0(m, "_sd")
+  pm_col   <- paste0(m, "_mean_pm_sd")
+
+  mean_diet_ileum[[pm_col]] <-
+    paste0(
+      round(mean_diet_ileum[[mean_col]], 4),
+      " ± ",
+      round(mean_diet_ileum[[sd_col]], 4)
+    )
+}
+
+write.table(mean_diet_ileum, file = 'mean_diet_ileum.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+```
+
+##3. Colon 
+### 3.1 Statistics
+```{r}
+columns_to_test <- c(18:22)
+
+pairwise_test_results <- list()
+
+for (col_num in columns_to_test) {
+  col_name <- names(diet_data_colon)[col_num]
+  x <- diet_data_colon[[col_num]]
+  
+  # Perform normality tests
+  shapiro_test <- shapiro.test(x)
+  ad_test <- ad.test(x)
+  
+  if (shapiro_test$p.value > 0.05 & ad_test$p.value > 0.05) {
+    result_adj <- pairwise.t.test(x, diet_data_colon$diet, p.adjust.method = "BH", exact = FALSE)
+    result_raw <- pairwise.t.test(x, diet_data_colon$diet, p.adjust.method = "none")
+    test_type <- "pairwise t-test"
+  } else {
+    result_adj <- pairwise.wilcox.test(x, diet_data_colon$diet, p.adjust.method = "BH", exact = FALSE)
+    result_raw <- pairwise.wilcox.test(x, diet_data_colon$diet, p.adjust.method = "none")
+    test_type <- "pairwise Wilcoxon test"
+  }
+  
+  pairwise_test_results[[col_name]] <- list(
+    test = test_type,
+    p.value.matrix.raw = result_raw$p.value,
+    p.value.matrix.adjusted = result_adj$p.value
+  )
+}
+
+# Print results
+for (col_name in names(pairwise_test_results)) {
+  cat("\nResults for:", col_name, "\n")
+  cat("Test used:", pairwise_test_results[[col_name]]$test, "\n")
+  cat("Uncorrected p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.raw)
+  cat("BH-adjusted p-values:\n")
+  print(pairwise_test_results[[col_name]]$p.value.matrix.adjusted)
+}
+```
+
+### 3.2  Mean ± SD table
+```{r}
+
+columns_to_test <- c(17:21)
+
+# ----- N counts per diet -----
+n_counts_grouped_colon_diet <- diet_data_colon %>%
+  group_by(diet) %>%
+  summarise(across(all_of(columns_to_test),
+                   ~ sum(!is.na(.)),
+                   .names = "N_{.col}")) %>%
+  ungroup()
+
+n_df_long_colon_diet <- n_counts_grouped_colon_diet %>%
+  pivot_longer(cols = starts_with("N_"),
+               names_to = "Variable",
+               values_to = "N") %>%
+  mutate(Variable = sub("N_", "", Variable))
+
+```
+
+```{r}
+# markers to summarise
+markers <- c("TLR4", "TNF", "CCL.5", "CCL2", "mReg3")
+
+# 1. Calculate mean and SD by diet
+mean_diet_colon <- diet_data_colon %>%
+  group_by(diet) %>%
+  summarise(
+    across(
+      all_of(markers),
+      list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd   = ~ sd(.x, na.rm = TRUE)
+      )
+    ),
+    .groups = "drop"
+  )
+
+# 2. Add mean ± SD columns
+for (m in markers) {
+  mean_col <- paste0(m, "_mean")
+  sd_col   <- paste0(m, "_sd")
+  pm_col   <- paste0(m, "_mean_pm_sd")
+
+  mean_diet_colon[[pm_col]] <-
+    paste0(
+      round(mean_diet_colon[[mean_col]], 4),
+      " ± ",
+      round(mean_diet_colon[[sd_col]], 4)
+    )
+}
+
+write.table(mean_diet_colon, file = 'mean_diet_colon.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+## 4. Plot
+
+```{r}
+plot_data_all <- cbind(diet_data_ileum,
+                       diet_data_colon$CCL.5)
+plot_data_all <- rename(plot_data_all, "CCL.5_colon" = "diet_data_colon$CCL.5")
+
+plot_data <- plot_data_all %>%
+  select(diet, CCL5, mReg3, CCL2, TNF, CCL.5_colon) %>%
+  pivot_longer(
+    cols = c(CCL5, mReg3, CCL2, TNF,  CCL.5_colon),
+    names_to = "Gene",
+    values_to = "Expression"
+  ) %>%
+  mutate(Gene = factor(Gene, levels = c("CCL5", "mReg3", "TNF", "CCL2", "ZO1", "CCL.5_colon")))
+
+x_axis_labels <- c(
+  "CCL5"  = expression(italic("Ccl5")),
+  "mReg3" = expression(italic("Reg3") * gamma),
+  "CCL2"   = expression(italic("Ccl2")),
+  "TNF"   = expression(italic("Tnf")),
+  "CCL.5_colon" = expression(italic("Ccl5")~"c")
+)
+
+diet_colors <- c("#85C1E9", "#AF7AC5", "#F39C12", "#52BE80")
+
+pdf("Diet_ileum_combined_genes.pdf", width = 24, height = 6)
+ggplot(plot_data, aes(x = Gene, y = Expression, fill = diet, color = diet)) +
+  geom_boxplot(
+    lwd = 1.2,
+    width = 0.6,
+    outlier.shape = NA,
+    alpha = 0.2,
+    position = position_dodge(width = 0.8)) +
+  geom_point(
+    size = 2,
+    alpha = 0.7,
+    position = position_dodge(width = 0.8)) +
+  scale_fill_manual(
+    values = diet_colors,
+    labels = c("control" = "RCD", "fasting" = "Fasting", "high_fat" = "HFaD", "high_fiber" = "HFiD"),
+    name = "") +
+  scale_color_manual(
+    values = diet_colors,
+    guide = "none") +
+  scale_x_discrete(
+    labels = x_axis_labels) +
+  labs(x = "", y = "Relative mRNA expression") +
+  scale_y_continuous(limits = c(0, 10)) +
+  Settings_genes +
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(size = 25, face = "italic"), 
+    legend.position = "right",
+    legend.text = element_text(hjust = 0))
+dev.off()
+```
