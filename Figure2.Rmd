@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Figure 2B - QMPs TRF study
 
 ## 1. Preparation
-excluding mouse 529 due to active colitis symptoms
+excluding mouse 529 due to colitis symptoms
 ```{r}
 TRF_QMP <- filter(metadata_QP_passage, project == "TRF_study" & mouse != "529")
 
@@ -61,7 +61,7 @@ labs(x = "",
   facet_wrap(~genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
   coord_cartesian(xlim = c(2, 1)) +
   scale_y_continuous(limits = c(50, 350), breaks = seq(0, 360, by = 60)) +
-  Settings_Eva +
+  Settings_TRF +
   theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
 ```
 
@@ -109,7 +109,7 @@ plot_load <-TRF_QMP %>%
   facet_wrap(~ genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
   coord_cartesian(xlim = c(2, 1)) +
   scale_y_continuous(limits = c(1.0e+10, 2e+11)) +
-  Settings_Eva +
+  Settings_TRF +
   theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
 
 
@@ -160,7 +160,7 @@ labs(x = "",
   facet_wrap(~ genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
   coord_cartesian(xlim = c(2, 1)) +
   scale_y_continuous(limits = c(2.5e+10, 5e+11)) +
-  Settings_Eva +
+  Settings_TRF +
   theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
 ```
 
@@ -211,7 +211,7 @@ labs(x = "",
   facet_wrap(~ genotype_group, labeller = labeller(genotype_group = facet_labels_TRF), scales = "fixed") +
   coord_cartesian(xlim = c(2, 1)) +
   scale_y_continuous(limits = c(0.0, 1.0)) +
-  Settings_Eva +
+  Settings_TRF +
   theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown())
 dev.off()
 
@@ -219,13 +219,11 @@ dev.off()
 
 ### 2.5 Save Plots in same panel width
 ```{r}
-# Turn all your plots into grobs
 g1 <- ggplotGrob(plot_transit)
 g2 <- ggplotGrob(plot_stool)
 g3 <- ggplotGrob(plot_density)
 g4 <- ggplotGrob(plot_load)
 
-# Find the maximum panel width across all plots
 max_width <- grid::unit.pmax(
   g1$widths[2:5],
   g2$widths[2:5],
@@ -233,13 +231,11 @@ max_width <- grid::unit.pmax(
   g4$widths[2:5]
 )
 
-# Apply that max width to all plots
 g1$widths[2:5] <- max_width
 g2$widths[2:5] <- max_width
 g3$widths[2:5] <- max_width
 g4$widths[2:5] <- max_width
 
-# Save each plot individually with matching panel widths
 ggsave("TRF_transit.pdf", g1, width = 8, height = 6)
 ggsave("TRF_stool.pdf", g2, width = 8, height = 6)
 ggsave("TRF_density.pdf", g3, width = 8, height = 6)
@@ -266,10 +262,8 @@ ggsave("TRF_load.pdf",    aligned[[4]], width = 8, height = 6)
 
 ##3. Mean ± SD table TRF study
 ```{r}
-# markers to summarise
 markers <- c("Transit_Time", "Microbiota_Excretion", "Microbial_Load", "Fecal_Mass")
 
-# 1. Calculate mean and SD by diet
 mean_TRF_QMP <- TRF_QMP %>%
   group_by(genotype_trf) %>%
   summarise(
@@ -283,7 +277,6 @@ mean_TRF_QMP <- TRF_QMP %>%
     .groups = "drop"
   )
 
-# 2. Add mean ± SD columns
 for (m in markers) {
   mean_col <- paste0(m, "_mean")
   sd_col   <- paste0(m, "_sd")
@@ -372,23 +365,20 @@ p_two <- ggplot(df_two, aes(
   facet_wrap(~ QMP, ncol = 4, scales = "free_y") +
   scale_fill_manual(values = c(
     "ZT 1" = "#3498DB",
-    "ZT 5" = "#4B3CC7"
-  )) +
+    "ZT 5" = "#4B3CC7")) +
   scale_color_manual(values = c(
     "ZT 1" = "#3498DB",
-    "ZT 5" = "#4B3CC7"
-  )) +
+    "ZT 5" = "#4B3CC7")) +
   scale_x_discrete(
     labels = c(
       "WT" = "WT",
       "IL10-/-" = expression("IL-10"^"-/-"))) +
   labs(x = "", y = "", fill = "", color = "") +
-  Settings_inactivity +
+  Settings_ZT +
   theme(
     panel.spacing = unit(4, "lines"))
 p_two
 
-### Save
 ggsave("QMPs_ZT.pdf",
        p_two, width = 28, height = 10)
 
@@ -410,8 +400,7 @@ summary_stats_ZT <- QMP_ZT %>%
     Microbiota_Excretion_sd   = sd(Microbiota_Excretion, na.rm = TRUE),
 
     Transit_Time_mean = mean(Transit_Time, na.rm = TRUE),
-    Transit_Time_sd   = sd(Transit_Time, na.rm = TRUE)
-  )
+    Transit_Time_sd   = sd(Transit_Time, na.rm = TRUE))
 ```
 
 ```{r}
@@ -494,7 +483,6 @@ columns_to_test <- c(18:22)
 
 pairwise_test_results <- list()
 
-# Loop 
 for (col_num in columns_to_test) {
   col_name <- names(TRF_data_ileum_nocol)[col_num]
   x <- TRF_data_ileum_nocol[[col_num]]
@@ -520,7 +508,6 @@ for (col_num in columns_to_test) {
   )
 }
 
-# Print results
 for (col_name in names(pairwise_test_results)) {
   cat("\nResults for:", col_name, "\n")
   cat("Test used:", pairwise_test_results[[col_name]]$test, "\n")
@@ -529,8 +516,6 @@ for (col_name in names(pairwise_test_results)) {
   cat("BH-adjusted p-values:\n")
   print(pairwise_test_results[[col_name]]$p.value.matrix.adjusted)
 }
-
-
 ```
 
 ###2.2  Mean ± SD table
@@ -553,10 +538,8 @@ n_df_long_ileum_TRF <- n_counts_grouped_ileum_TRF %>%
 ```
 
 ```{r}
-# markers to summarise
 markers <- c("TLR4", "TNF", "CCL5", "CCL2", "mReg3")
 
-# 1. Calculate mean and SD by diet
 mean_TRF_ileum <- TRF_data_ileum_nocol %>%
   group_by(diet_genotype) %>%
   summarise(
@@ -570,7 +553,6 @@ mean_TRF_ileum <- TRF_data_ileum_nocol %>%
     .groups = "drop"
   )
 
-# 2. Add mean ± SD columns
 for (m in markers) {
   mean_col <- paste0(m, "_mean")
   sd_col   <- paste0(m, "_sd")
@@ -594,12 +576,10 @@ columns_to_test <- c(18:22)
 
 pairwise_test_results <- list()
 
-# Loop 
 for (col_num in columns_to_test) {
   col_name <- names(TRF_data_colon_nocol)[col_num]
   x <- TRF_data_colon_nocol[[col_num]]
   
-  # Normality tests
   shapiro_test <- shapiro.test(x)
   ad_test <- ad.test(x)
   
@@ -636,7 +616,6 @@ for (col_num in columns_to_test) {
   )
 }
 
-# Print results
 for (col_name in names(pairwise_test_results)) {
   cat("\nResults for:", col_name, "\n")
   cat("Test used:", pairwise_test_results[[col_name]]$test, "\n")
@@ -671,7 +650,6 @@ n_df_long_colon_TRF <- n_counts_grouped_colon_TRF %>%
 ```{r}
 markers <- c("TLR4", "TNF", "CCL.5", "CCL2", "mReg3")
 
-# 1. Calculate mean and SD by diet
 mean_TRF_colon <- TRF_data_colon_nocol %>%
   group_by(diet_genotype) %>%
   summarise(
@@ -685,7 +663,6 @@ mean_TRF_colon <- TRF_data_colon_nocol %>%
     .groups = "drop"
   )
 
-# 2. Add mean ± SD columns
 for (m in markers) {
   mean_col <- paste0(m, "_mean")
   sd_col   <- paste0(m, "_sd")
@@ -734,21 +711,9 @@ pos <- position_dodge(width = 0.8)
 
 ggplot(
   plot_data_TRF,
-  aes(
-    x = Gene,
-    y = Expression,
-    fill = diet_genotype,
-    color = diet_genotype)) +
-  geom_boxplot(
-    lwd = 1.2,
-    width = 0.6,
-    outlier.shape = NA,
-    alpha = 0.2,   
-    position = pos) +
-  geom_point(
-    size = 2,
-    alpha = 0.7,
-    position = pos) +
+  aes(x = Gene, y = Expression, fill = diet_genotype, color = diet_genotype)) +
+  geom_boxplot(lwd = 1.2, width = 0.6, outlier.shape = NA, alpha = 0.2, position = pos) +
+  geom_point(size = 2, alpha = 0.7, position = pos) +
   scale_fill_manual(
     values = diet_colors,
     labels = c(
@@ -757,10 +722,7 @@ ggplot(
       "control_IL10-/-" = expression("IL-10"^"-/-"~"ad libitum"),
       "TRF_IL10-/-"     = expression("IL-10"^"-/-"~"TRF")),
     name = "") +
-  scale_color_manual(
-    values = diet_colors,
-    guide = "none"
-  ) +
+  scale_color_manual(values = diet_colors, guide = "none") +
   guides(
     fill = guide_legend(
       override.aes = list(
@@ -774,7 +736,7 @@ ggplot(
     y = "Relative mRNA expression"
   ) +
   scale_y_continuous(limits = c(0, 15)) +
-  Settings_diet +
+  Settings_genes +
   theme(
     axis.ticks.x = element_blank(),
     axis.text.x = element_text(size = 25, face = "italic"),
