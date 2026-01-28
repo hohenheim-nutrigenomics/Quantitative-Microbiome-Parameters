@@ -1,0 +1,2861 @@
+---
+title: "GLMMs"
+output: html_document
+date: "2026-01-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Suppl. Figure 1 - GLMM diet study 
+
+## 1. Preparation
+```{r}
+meta_L6_mean_relAb_diet <- meta_L6_mean_relAb_diet %>% rownames_to_column('sampleID')
+taxa_pattern <- "^g_|^f_|^o_|^c_|^p_|^k_"
+taxa_cols <- names(meta_L6_mean_relAb_diet)[grepl(taxa_pattern, names(meta_L6_mean_relAb_diet))]
+
+taxa_table_diet <- meta_L6_mean_relAb_diet[, c("sampleID", taxa_cols)]
+
+metadata_cols <- setdiff(names(meta_L6_mean_relAb_diet), taxa_cols)
+metadata_diet <- meta_L6_mean_relAb_diet[, metadata_cols]
+rownames(metadata_diet) <- NULL
+
+```
+
+```{r}
+rownames(taxa_table_diet) <- NULL
+taxa_table_diet <- taxa_table_diet %>% column_to_rownames('sampleID')
+
+tmp <- taxa_table_diet[, colSums(taxa_table_diet, na.rm = T) > 0]
+dim(taxa_table_diet) 
+dim(tmp)
+
+relAb_diet_filt <- taxa_table_diet[, colSums(taxa_table_diet > 0.001) > 3] # 44 71 ->  low abundant taxa removed 
+
+relAb_diet_filt <- sweep(relAb_diet_filt, 1, rowSums(relAb_diet_filt),'/') 
+rowSums(relAb_diet_filt)
+
+# pseudocount and clr transformation
+min_nonzero <- min(relAb_diet_filt > 0, na.rm = TRUE)
+pseudo_count <- min_nonzero / 2
+
+relAb_diet_clr <- compositions::clr(relAb_diet_filt + pseudo_count)
+
+#join with metadata
+relAb_diet_clr <- relAb_diet_clr %>% as.data.frame() %>% rownames_to_column('sampleID')
+relAb_diet_clr <- semi_join(relAb_diet_clr, metadata_diet)
+diet_metadata_rf <- semi_join(metadata_diet, relAb_diet_clr)
+
+relAb_diet_clr <- arrange(relAb_diet_clr, sampleID) 
+diet_metadata_rf <- arrange(diet_metadata_rf, sampleID) 
+
+head(relAb_diet_clr$sampleID) 
+head(diet_metadata_rf$sampleID)
+
+diet_metadata_rf <- diet_metadata_rf  %>% column_to_rownames(var = "sampleID")
+relAb_diet_clr <- relAb_diet_clr  %>% column_to_rownames(var = "sampleID")
+
+```
+
+## 2. GLMM
+```{r}
+get_df_for_taxon <- function(select_taxon) {
+  relAb_diet_clr |>
+    tibble::rownames_to_column("sampleID") |>
+    dplyr::select("sampleID", select_taxon) |>
+    dplyr::left_join(y = diet_metadata_rf |> tibble::rownames_to_column('sampleID'), by = 'sampleID') |>
+    dplyr::rename(taxon = select_taxon) |>
+    dplyr::mutate(
+      diet = fct_relevel(diet, "control", "fasting", "high_fat", "high_fiber"),
+      cage = fct_relevel(cage, "A_1", "A_2", "A_3", "A_4", "A_5", "A_6", "A_7", "A_8"),
+      taxon_name = select_taxon
+    )
+}
+
+```
+
+
+```{r}
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon,  
+                        taxon ~ 
+                          diet +
+                          (1|cage))
+  print(taxon)
+  return(fit)
+}
+
+```
+
+```{r}
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+para <- as.data.frame(lm_summary)[, -c(3:4)]  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+```
+
+```{r}
+all_taxa <- colnames(relAb_diet_clr)
+output_fit_summary <- NULL
+output_models_mean_relAb <- list()
+```
+
+```{r}
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_mean_relAb[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+```
+13 single boundaries
+
+```{r}
+stats_relAb_diet <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  ))
+```
+
+
+```{r}
+write.table(stats_relAb_diet, file = 'LME_stats_relAb_diet.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_relAb_filt_diet <- stats_relAb_diet %>% filter(qval < 0.1)  
+
+```
+
+## 3. EMMEANS
+```{r}
+output_emmeans <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_mean_relAb[[taxon]], 
+            specs = pairwise ~ diet, 
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans <- bind_rows(output_emmeans, emm)
+}
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+```
+
+```{r}
+output_emmeans_BH_filt <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+
+write.table(output_emmeans_BH_filt, file = 'EMM_stats_relAb_diet.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+
+output_emmeans_relAb_filt <- output_emmeans %>% filter(contrast != "fasting - high_fat" & contrast != "fasting - high_fiber" & contrast != "high_fat - high_fiber") 
+
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+unique(tmp$taxon_name) %>% as.data.frame() %>% View()
+```
+
+
+```{r}
+output_emmeans_relAb_BH_filt <- output_emmeans_relAb_filt %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+```
+
+```{r}
+#save output
+write.table(output_emmeans_relAb_BH_filt, file = 'EMM_stats_relAb_diet.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_relAb_BH_filt_sig <- filter(output_emmeans_relAb_BH_filt, qval < 0.1) 
+
+#save output
+write.table(output_emmeans_relAb_BH_filt_sig, file = 'EMM_stats_relAb_sig_diet.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+unique(output_emmeans_relAb_BH_filt_sig$taxon_name) %>% as.data.frame() %>% View 
+```
+
+
+```{r}
+Wald_fct <- function(output_models_mean_relAb) {
+  confint(output_models_mean_relAb, method="Wald")
+}
+
+# for all models 
+r2 <- lapply(output_models_mean_relAb, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+confint <- lapply(output_models_mean_relAb, confint) 
+confint_wald <- lapply(output_models_mean_relAb, Wald_fct)
+
+write.table(r2, file = "r2_mean_relAb_diet.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint, file = "confint_likelihood_mean_relAb_diet.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint_wald, file = "confint_Waald_mean_relAb_diet.txt", sep = "\t", col.names = TRUE, row.names = T)
+```
+
+
+##4. Heatmap
+```{r}
+emmeans_filt <- filter(output_emmeans_ht, contrast == ".") 
+```
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+```
+
+```{r}
+taxa_list_relAb <- c(
+  "g_Muribaculum",
+  "g_Parabacteroides",
+  "g_Lactobacillus",
+  "g_Lachnoclostridium",
+  "g_Marvinbryantia",
+  "g_[Eubacterium] xylanophilum group",
+  "g_Anaerotruncus",
+  "g_Candidatus Soleaferrea",
+  "g_[Eubacterium] coprostanoligenes group",
+  "g_Dubosiella",
+  "g_Turicibacter",
+  "g_Desulfovibrio",
+  "o_Mollicutes RF39;f_uncultured bacterium;g_uncultured bacterium"
+)#
+  
+
+emmeans_filt_relAb <- emmeans_filt %>% filter(taxon_name %in% taxa_list_relAb)
+```
+
+
+```{r}
+df_filt_diet <- 
+  emmeans_filt_relAb %>% 
+  dplyr::select(diet, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c('diet'), values_from = 'emmean') %>%  # new columns: no_WT   no_IL10-/-   yes_WT   yes_IL10-/-
+  dplyr::select("taxon_name", "control", "fasting", "high_fat", "high_fiber") %>% 
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.)
+
+column_labels <- c("Control", "Fasting", "High Fat", "High Fiber")
+
+
+pdf("GLMM_diet.pdf", width = 17, height = 6)
+
+ht <- Heatmap(
+  df_filt_diet,
+  cluster_column_slices = FALSE,
+  cluster_columns = FALSE,
+  column_labels = column_labels,
+  column_names_rot = FALSE,
+  column_names_centered = TRUE,
+  name = "emmeans",
+  column_gap = unit(4, "mm"),
+  row_names_gp = grid::gpar(fontsize = 16),
+  column_names_gp = grid::gpar(fontsize = 16),
+  width = ncol(df_filt_diet) * unit(26, "mm"),
+  height = nrow(df_filt_diet) * unit(8, "mm"),
+  show_heatmap_legend = TRUE,
+  heatmap_legend_param = list(
+    legend_gp = gpar(fontsize = 16)
+  )
+)
+
+# Draw with custom legend position
+draw(ht, heatmap_legend_side = "left") 
+
+dev.off()
+
+
+
+```
+
+# Suppl. Figure 5C - GLMM TRF study 
+
+## 1. Preparation
+```{r}
+meta_L6_mean_relAb_TRF <- meta_L6_mean_relAb_TRF %>% rownames_to_column('sampleID')
+
+taxa_pattern <- "^g_|^f_|^o_|^c_|^p_|^k_"
+taxa_cols <- names(meta_L6_mean_relAb_TRF)[grepl(taxa_pattern, names(meta_L6_mean_relAb_TRF))]
+
+taxa_table_TRF <- meta_L6_mean_relAb_TRF[, c("sampleID", taxa_cols)]
+
+metadata_cols <- setdiff(names(meta_L6_mean_relAb_TRF), taxa_cols)
+metadata_TRF <- meta_L6_mean_relAb_TRF[, metadata_cols]
+rownames(metadata_TRF) <- NULL
+
+metadata_TRF <- metadata_TRF %>%
+  mutate(diet_genotype = paste(diet, genotype_group, sep = "_"))
+
+```
+
+```{r}
+rownames(taxa_table_TRF) <- NULL
+taxa_table_TRF <- taxa_table_TRF %>% column_to_rownames('sampleID')
+
+#check for zero count columns
+tmp <- taxa_table_TRF[, colSums(taxa_table_TRF, na.rm = T) > 0]
+dim(taxa_table_TRF) 
+dim(tmp) 
+
+#filter df 
+relAb_TRF_filt <- taxa_table_TRF[, colSums(taxa_table_TRF > 0.001) > 3] 
+
+relAb_TRF_filt <- sweep(relAb_TRF_filt, 1, rowSums(relAb_TRF_filt),'/') 
+rowSums(relAb_TRF_filt)
+
+# pseudocount and clr transformation 
+min_nonzero <- min(relAb_TRF_filt > 0, na.rm = TRUE)
+
+pseudo_count <- min_nonzero / 2
+
+relAb_TRF_clr <- compositions::clr(relAb_TRF_filt + pseudo_count)
+
+
+relAb_TRF_clr <- relAb_TRF_clr %>% as.data.frame() %>% rownames_to_column('sampleID')
+relAb_TRF_clr <- semi_join(relAb_TRF_clr, metadata_TRF) #
+TRF_metadata_rf <- semi_join(metadata_TRF, relAb_TRF_clr)
+
+relAb_TRF_clr <- arrange(relAb_TRF_clr, sampleID) 
+TRF_metadata_rf <- arrange(TRF_metadata_rf, sampleID) 
+
+head(relAb_TRF_clr$sampleID) 
+head(TRF_metadata_rf$sampleID)
+
+TRF_metadata_rf <- TRF_metadata_rf  %>% column_to_rownames(var = "sampleID")
+relAb_TRF_clr <- relAb_TRF_clr  %>% column_to_rownames(var = "sampleID")
+
+```
+
+## 2 GLMM
+```{r}
+get_df_for_taxon <- function(select_taxon) {
+  relAb_TRF_clr |>
+    tibble::rownames_to_column("sampleID") |>
+    dplyr::select("sampleID", select_taxon) |>
+    dplyr::left_join(y = TRF_metadata_rf |> tibble::rownames_to_column('sampleID'), by = 'sampleID') |>
+    dplyr::rename(taxon = select_taxon) |>
+    dplyr::mutate(
+      diet = fct_relevel(diet, "control", "TRF"),
+      genotype = fct_relevel(genotype_group, "WT", "IL10-/-"),
+      litter = fct_relevel(litter, "C_1", "C_2", "C_3", "C_4", "C_5", "C_6", "C_7", "C_8", "C_9", "C_10", "C_11", "C_12", "C_13", "C_14", "C_15", "C_16"),
+      cage = fct_relevel(cage, "C_1", "C_2", "C_3", "C_4", "C_5", "C_6", "C_7", "C_8", "C_9", "C_10", "C_11", "C_12", "C_13", "C_14", "C_15", "C_16"),
+      taxon_name = select_taxon
+    )
+}
+
+```
+
+
+```{r}
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon,  
+                        taxon ~ 
+                          diet * genotype +
+                          (1|litter))
+  print(taxon)
+  return(fit)
+}
+
+```
+
+```{r}
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+para <- as.data.frame(lm_summary)[, -c(3:4)]  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+```
+
+```{r}
+all_taxa <- colnames(relAb_TRF_clr)
+output_fit_summary <- NULL
+output_models_mean_relAb <- list()
+```
+
+```{r}
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_mean_relAb[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+```
+
+```{r}
+stats_relAb_TRF <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  ))
+```
+
+
+```{r}
+write.table(stats_relAb_TRF, file = 'LME_stats_relAb_TRF.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_relAb_filt_TRF <- stats_relAb_TRF %>% filter(qval < 0.1) 
+```
+
+##3. EMMEANS
+```{r}
+output_emmeans <- NULL
+
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_mean_relAb[[taxon]], 
+            specs = pairwise ~ diet * genotype, 
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans <- bind_rows(output_emmeans, emm)
+}
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+```
+
+```{r}
+output_emmeans_BH_filt <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+
+write.table(output_emmeans_BH_filt, file = 'EMM_stats_relAb_TRF.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet * genotype) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+
+output_emmeans_relAb_filt <- output_emmeans %>% filter(contrast != "control WT - (TRF IL10-/-)" & contrast != "TRF WT - (control IL10-/-)") # 352 observations
+
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+unique(tmp$taxon_name) %>% as.data.frame() %>% View()
+```
+
+
+```{r}
+output_emmeans_relAb_BH_filt <- output_emmeans_relAb_filt %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+```
+
+
+```{r}
+#save output
+write.table(output_emmeans_relAb_BH_filt, file = 'EMM_stats_relAb_TRF.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_relAb_BH_filt_sig <- filter(output_emmeans_relAb_BH_filt, qval < 0.1)
+
+#save output
+write.table(output_emmeans_relAb_BH_filt_sig, file = 'EMM_stats_relAb_sig_TRF.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+unique(output_emmeans_relAb_BH_filt_sig$taxon_name) %>% as.data.frame() %>% View 
+```
+
+
+```{r}
+output_emmeans_relAb_BH_filt_sig_TRF <- filter(output_emmeans_relAb_BH_filt_sig, contrast == "(control IL10-/-) - (TRF IL10-/-)" | contrast == "control WT - TRF WT") 
+unique(output_emmeans_relAb_BH_filt_sig_TRF$taxon_name) %>% as.data.frame() %>% View 
+ 
+output_emmeans_relAb_BH_filt_sig_genotype <- filter(output_emmeans_relAb_BH_filt_sig, contrast == "control WT - (control IL10-/-)" | contrast == "TRF WT - (TRF IL10-/-)") 
+unique(output_emmeans_relAb_BH_filt_sig_TRF$taxon_name) %>% as.data.frame() %>% View 
+```
+
+```{r}
+Wald_fct <- function(output_models_mean_relAb) {
+  confint(output_models_mean_relAb, method="Wald")
+}
+
+# for all models 
+r2 <- lapply(output_models_mean_relAb, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+confint <- lapply(output_models_mean_relAb, confint) 
+confint_wald <- lapply(output_models_mean_relAb, Wald_fct)
+
+write.table(r2, file = "r2_mean_relAb_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint, file = "confint_likelihood_mean_relAb_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint_wald, file = "confint_Waald_mean_relAb_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+```
+
+
+## 4. Heatmap
+```{r}
+emmeans_filt <- filter(output_emmeans_ht, contrast == ".") 
+```
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet * genotype)  %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+```
+
+```{r}
+taxa_list_relAb <- c(
+  "g_Bacteroides",
+  "f_Muribaculaceae;g_uncultured Bacteroidales bacterium",
+  "f_Muribaculaceae;g_uncultured bacterium",
+  "f_Muribaculaceae",
+  "g_Prevotellaceae UCG-001",
+  "g_Rikenellaceae RC9 gut group",
+  "g_Lactobacillus",
+  "f_Lachnospiraceae;g_A2",
+  "g_Blautia",
+  "f_Lachnospiraceae;g_GCA-900066575",
+  "g_Lachnoclostridium",
+  "g_Lachnospiraceae NK4A136 group",
+  "g_Lachnospiraceae UCG-001",
+  "g_Lachnospiraceae UCG-006",
+  "g_Marvinbryantia",
+  "g_Tyzzerella",
+  "f_Lachnospiraceae;g_uncultured",
+  "f_Lachnospiraceae",
+  "g_Oscillibacter",
+  "g_Ruminiclostridium",
+  "g_Ruminiclostridium 9",
+  "g_Ruminococcaceae UCG-009",
+  "g_[Eubacterium] coprostanoligenes group",
+  "f_Ruminococcaceae",
+  "g_Desulfovibrio",
+  "g_Parasutterella",
+  "g_Anaeroplasma"
+) #
+  
+
+emmeans_filt_relAb <- emmeans_filt %>% filter(taxon_name %in% taxa_list_relAb)
+```
+
+
+```{r}
+df_filt_TRF <- 
+  emmeans_filt_relAb %>% 
+  dplyr::select(diet, genotype, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c('diet', "genotype"), values_from = 'emmean') %>%  # new columns: no_WT   no_IL10-/-   yes_WT   yes_IL10-/-
+  dplyr::select("taxon_name", "control_WT", "TRF_WT", "control_IL10-/-", "TRF_IL10-/-") %>% 
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.)
+
+# create heatmap
+heat_relAb <- Heatmap(df_filt_TRF, 
+            cluster_column_slices = F, cluster_columns = F,
+            column_split = factor(c(rep("WT", 2), rep("IL10-/-", 2)), #Einteilung oben horizontal 
+                levels = c("WT", "IL10-/-"), labels = c("WT", "IL10-/-")), # Umbenennung
+            column_labels = rep(c("AL", "TRF"), 2), column_names_rot = F, # Einteilung unten horizontal
+            column_names_centered = T,name = "emmeans",
+            column_gap = unit(c(4), "mm"),
+            row_names_gp = grid::gpar(fontsize = 16),
+            column_names_gp = grid::gpar(fontsize = 16),
+            width = ncol(df_filt_TRF)*unit(26, "mm"), 
+            height = nrow(df_filt_TRF)*unit(8, "mm"),
+            show_heatmap_legend = T,
+            heatmap_legend_param = list(legend_gp = gpar(fontsize = 16)))
+
+
+
+pdf("GLMM_TRF.pdf", width = 15, height=16)
+draw(heat_relAb, heatmap_legend_side = "left")
+dev.off()
+
+heat_relAb
+```
+
+# Suppl. Figure 6 - GLMMs per interval 
+
+##1. relative abundance diet study 
+
+### 1.1 Prepare Data
+
+Load and prepare data
+```{r}
+meta_L6_relAb_Diet <- read.table("meta_L6_relAb_Diet.txt", sep = '\t', comment = '', header = T, check.names = F) 
+
+# filter NA samples (rarefaction)
+meta_L6_relAb_Diet <- meta_L6_relAb_Diet %>% filter(if_all(everything(), ~ !is.na(.))) #  
+
+# discard last timepoint (240min -> only few samples) & de-select unncessary columns
+meta_L6_relAb_Diet <- meta_L6_relAb_Diet %>% 
+  filter(timepoint != "240min") %>% 
+  dplyr::select(-passage_cycle, -ZT, -clock_group, -disrupted_clock, -colitis)  # 
+
+# split metadata and taxa
+meta_L6_relAb_Diet <-  meta_L6_relAb_Diet %>% column_to_rownames("sampleID")
+meta_Diet_glmm <- meta_L6_relAb_Diet[1:12]
+L6_relAb_glmm <- meta_L6_relAb_Diet[13:110] # 98 taxa columns
+
+```
+
+Abundance filtering
+```{r}
+# remove zero count taxa
+tmp <- L6_relAb_glmm[, colSums(L6_relAb_glmm) > 0] # 93 taxa columns -> lost 5 taxa
+L6_relAb_glmm <- tmp # 93 taxa
+L6_relAb_glmm <- sweep(L6_relAb_glmm, 1, rowSums(L6_relAb_glmm),'/') # re-calculate relAb
+rowSums(L6_relAb_glmm) # to control that rowSums are 1 
+
+# remove low abundant taxa
+# e.g all taxa with a relative abundance at least 0.1% in 3 samples
+tmp <- L6_relAb_glmm[, colSums(L6_relAb_glmm > 0.001) > 3] # 71 taxa columns -> 22 taxa lost
+L6_relAb_glmm <- tmp # 71 taxa
+
+# relAb, normalize filtered df to 1 again (make sure sampleID are rownames!!)
+L6_relAb_glmm <- sweep(L6_relAb_glmm, 1, rowSums(L6_relAb_glmm),'/') # relAb table without zero and low count taxa 
+rowSums(L6_relAb_glmm) # to control that rowSums are 1  
+
+```
+
+Pseudocount & clr Transformation
+```{r}
+min_nonzero <- min(L6_relAb_glmm[L6_relAb_glmm > 0], na.rm = TRUE) # half of the minimum non-zero value
+pseudo_count <- min_nonzero / 2
+
+L6_relAb_glmm_clr <- L6_relAb_glmm %>% compositions::clr(+ pseudo_count) %>% as.data.frame() 
+```
+
+
+Final touches
+```{r}
+# check sample order & sampleIDs are rownames 
+rownames(L6_relAb_glmm_clr) == rownames(meta_Diet_glmm) # all TRUE 
+
+# factor levels
+meta_Diet_glmm$mouse <-  as.factor(meta_Diet_glmm$mouse)
+meta_Diet_glmm$cage <-  as.factor(meta_Diet_glmm$cage)
+meta_Diet_glmm$litter <-  as.factor(meta_Diet_glmm$litter)
+meta_Diet_glmm$diet <-  as.factor(meta_Diet_glmm$diet)
+meta_Diet_glmm$timepoint <-  as.factor(meta_Diet_glmm$timepoint)
+
+```
+
+
+### 1.2 GLMM 
+
+model input: 
+meta_Diet_glmm
+L6_relAb_glmm_clr
+
+```{r}
+# generates data frame for taxon subset 
+get_df_for_taxon <- function(select_taxon) {
+  L6_relAb_glmm_clr %>% 
+    tibble::rownames_to_column("SampleID")  %>% 
+    dplyr::select("SampleID", all_of(select_taxon))  %>% 
+    dplyr::left_join(y = meta_Diet_glmm %>% tibble::rownames_to_column('SampleID'), by = 'SampleID') %>% 
+    dplyr::rename(taxon = select_taxon)  %>% 
+    dplyr::mutate(diet = fct_relevel(diet, "control", "fasting", "high_fat", "high_fiber"), # change for your project, order levels -> the first one called will be used as reference
+                  timepoint = fct_relevel(timepoint, "60min", "120min", "180min"), # same for this -> list reference first
+                  taxon_name = select_taxon)
+}
+
+```
+
+```{r}
+# Create LME function with fixed and random effects
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon, 
+                        taxon ~ 
+                          diet * timepoint + # fixed effects
+                          (1|mouse)) # random effects
+  print(taxon) # to print the taxa names to the console to identify taxa with warnings
+  return(fit)
+}
+
+```
+
+```{r}
+# create model to summarize statistics (taxon, metadata, coef, stderr, pval, name)
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+  para <- as.data.frame(lm_summary)[, -c(3:4)] # to keep intercept
+  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    dplyr::mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+
+```
+
+```{r, message=TRUE, warning=TRUE, error=TRUE}
+# run model
+all_taxa <- colnames(L6_relAb_glmm_clr)
+output_fit_summary <- NULL
+output_models_relAb_Diet <- list()
+
+# do not change anything in this loop! This just calls the created functions.
+# if changes should be made, change functions above instead
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_relAb_Diet[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+```
+
+```{r}
+# R2 model fit 
+r2 <- lapply(output_models_relAb_Diet, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+
+# mean fit over all models 
+mean(r2$R2c) 
+mean(r2$R2m) 
+```
+
+Output with mouse as random effect: no warnings, 9 single boundary taxa, R2c 0.53, R2m 0.36, 53 sign. taxa
+
+```{r}
+# summarize all output of the model created for all taxa and apply FDR correction with BH (& add sig. levels)
+stats_relAb_Diet <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  )) # 852 observations 
+
+# to save the output to your computer
+# write.table(stats_relAb_Diet, file = "LME_relAb_Diet.txt", sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_relAb_Diet_filt <- stats_relAb_Diet %>% filter(qval < 0.1)  # 155 observations
+
+stats_relAb_Diet_filt %>% filter(metadata != "(Intercept)") %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 44 
+stats_relAb_Diet_filt %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 60 
+stats_relAb_Diet_filt %>% filter(str_detect(metadata, ":timepoint")) %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 19 (associated with diet:timepoint) 
+
+# save output 
+# write.table(stats_relAb_Diet_filt, file = "LME_relAb_Diet_filt.txt, sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+### 1.3 EMMEANS 
+
+```{r}
+# calculate for all taxa: (choose variant of interest for your data: all vs all or conditioned?)
+output_emmeans_relAb_Diet <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_relAb_Diet[[taxon]], 
+            specs = pairwise ~ timepoint | diet, 
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans_relAb_Diet <- bind_rows(output_emmeans_relAb_Diet, emm)
+} # 852 observations 
+
+# apply FDR correction across all comparisons across all taxa
+
+output_emmeans_relAb_Diet <- output_emmeans_relAb_Diet %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"))
+
+# save output
+# write.table(output_emmeans_relAb_Diet, file = 'EMM_relAb_Diet.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_relAb_Diet_filt <- filter(output_emmeans_relAb_Diet, qval < 0.1) # 59 observations 
+
+# save output
+# write.table(output_emmeans_relAb_Diet_filt, file = 'EMM_relAb_Diet_filt.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+output_emmeans_relAb_Diet_filt %>% dplyr::pull(taxon_name) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 28 
+
+# for heatmap: only extract significant taxa for 60min-120min and 60min-180min comparisons 
+top_taxa_Diet <- output_emmeans_relAb_Diet_filt %>% 
+  filter(contrast != "120min - 180min") %>% 
+  dplyr::pull(taxon_name) %>% unique() # -> for heatmap -> 26 taxa 
+
+
+```
+
+
+
+### 1.4 Heatmap
+
+re-calculate EMMs with contrasts for heatmap
+```{r}
+# calculate emmeans 
+output_emmeans_ht_relAb_Diet <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_relAb_Diet[[taxon]],
+            specs = pairwise ~ timepoint | diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht_relAb_Diet <- bind_rows(output_emmeans_ht_relAb_Diet, emm)
+} # 1704 observations
+
+# filter only taxa and comparisons wanted for your project
+emmeans_relAb_Diet_filt <- filter(output_emmeans_ht_relAb_Diet, contrast == ".") # 852 observations
+
+```
+
+prepare heatmap df 
+```{r}
+# prepare df
+df_filt_relAb_Diet <- 
+  emmeans_relAb_Diet_filt %>% 
+  filter(taxon_name %in% top_taxa_Diet) %>% # filter for top taxa, n = 26
+  dplyr::select(diet, timepoint, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c("diet", "timepoint"), values_from = 'emmean') %>%  
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.) # 26
+
+```
+
+prepare significance matrix for heatmap
+```{r}
+df_heat_sign <- # dataframe containing significance values 
+  output_emmeans_relAb_Diet %>% 
+  filter(taxon_name %in% top_taxa_Diet) %>% # filter for top taxa, n = 26
+  dplyr::select(contrast, diet, qval_ast, taxon_name) %>% # contrast = timepoint 
+  pivot_wider(names_from = c("diet", "contrast"), values_from = 'qval_ast') %>%
+  dplyr::select(-`control_120min - 180min`, -`fasting_120min - 180min`, -`high_fat_120min - 180min`, -`high_fiber_120min - 180min`) %>% 
+  column_to_rownames('taxon_name') %>% 
+  mutate(control = "") %>% relocate(control, .before = "control_60min - 120min") %>% 
+  mutate(fasting = "") %>% relocate(fasting, .before = "fasting_60min - 120min") %>% 
+  mutate(high_fat = "") %>% relocate(high_fat, .before = "high_fat_60min - 120min") %>% 
+  mutate(high_fiber = "") %>% relocate(high_fiber, .before = "high_fiber_60min - 120min") %>% 
+  as.matrix()
+
+df_heat_sign[df_heat_sign == "ns"] <- ""
+
+# reorder the rows in df_heat_sign according to the order of the taxa in the heatmap (df_heat_emm)
+df_heat_sign <- df_heat_sign[rownames(df_filt_relAb_Diet), ]
+
+# check if the orders match
+all(rownames(df_filt_relAb_Diet) == rownames(df_heat_sign)) # if TRUE, the rows are aligned correctly
+```
+
+heatmap 
+```{r}
+# heatmap with stats
+heat_relAb_Diet <- Heatmap(df_filt_relAb_Diet, 
+                           cluster_column_slices = F, cluster_columns = F,
+                            
+                           column_split = factor(
+                              c(rep("control", 3), rep("fasting", 3), rep("high_fat", 3), rep("high_fiber", 3)), # Einteilung oben horizontal 
+                              levels = c("control", "fasting", "high_fat", "high_fiber"), 
+                              labels = c("RCD", "Fasting", "HFaD", "HFiD")), # Umbenennung
+                            
+                           column_labels = rep(c("60min", "120min", "180min"), 4), column_names_rot = F, # Einteilung unten horizontal
+                            
+                           column_names_centered = T, name = "emmeans",
+                           column_gap = unit(c(4), "mm"),
+                            
+                           row_names_gp = grid::gpar(fontsize = 20),
+                           column_names_gp = grid::gpar(fontsize = 20),
+                           column_title_gp = grid::gpar(fontsize = 24, fontface = "bold"),
+                            
+                           width = ncol(df_filt_relAb_Diet)*unit(26, "mm"), 
+                           height = nrow(df_filt_relAb_Diet)*unit(8, "mm"),
+                           show_heatmap_legend = T,
+                           heatmap_legend_param = list(
+                              title = "Estimated Marginal Means", # Title override (optional)
+                              title_gp = gpar(fontsize = 20, fontface = "bold"),  # Legend title font
+                              labels_gp = gpar(fontsize = 20),# Legend label font size
+                              legend_height = unit(60, "mm"), # Total legend size (vertical)
+                              legend_width = unit(100, "mm"),  
+                              grid_height = unit(10, "mm"), # Size of color blocks
+                              grid_width = unit(10, "mm"),
+                              direction = "horizontal"), 
+                            
+                           cell_fun = function(j, i, x, y, width, height, fill) { # function to add text to each cell of the matrix 
+                              sig_level <- df_heat_sign[i, j]
+                              grid.text(sig_level, x, y, gp = gpar(fontsize = 18, col = "black"))
+                              }
+                            ) 
+ 
+```
+
+final heatmap export
+```{r}
+pdf("heatmap_relAb_Diet_interval.pdf", height = 14, width = 22)
+draw(heat_relAb_Diet, heatmap_legend_side = "bottom")
+dev.off()
+```
+
+
+##2. absolute abundance diet study 
+
+## 2.1 Prepare Data
+
+Load and prepare data (or see above 1.1)
+```{r}
+meta_L6_relAb_Diet <- read.table("meta_L6_relAb_Diet.txt", sep = '\t', comment = '', header = T, check.names = F) # 190 samples
+
+# filter NA samples (rarefaction)
+meta_L6_relAb_Diet <- meta_L6_relAb_Diet %>% filter(if_all(everything(), ~ !is.na(.))) # 186 samples left 
+
+# remove 240min timepoint and unnecessary columns 
+meta_L6_relAb_Diet <- meta_L6_relAb_Diet %>% 
+  filter(timepoint != "240min") %>% 
+  dplyr::select(-passage_cycle, -ZT, -clock_group, -disrupted_clock, -colitis)  # 
+
+# split metadata and taxa
+meta_L6_relAb_Diet <-  meta_L6_relAb_Diet %>% column_to_rownames("sampleID")
+meta_Diet_glmm <- meta_L6_relAb_Diet[1:13]
+L6_relAb_glmm <- meta_L6_relAb_Diet[14:111] # 98 taxa columns
+
+```
+
+Calculate normalized absAb (based on 16S rRNA GCN/g of stool -> "microbial load")
+```{r}
+# check correct rownames (sample) order
+rownames(meta_Diet_glmm) == rownames(L6_relAb_glmm) # all TRUE
+L6_absAb_glmm <- meta_Diet_glmm$Microbial_Load * L6_relAb_glmm # multiply relAb profiles with microbial load per sample -> 98 taxa
+```
+
+Abundance filtering
+```{r}
+# remove zero count taxa
+tmp <- L6_absAb_glmm[, colSums(L6_absAb_glmm) > 0] # 93 taxa columns -> lost 4 taxa
+L6_absAb_glmm <- tmp # 81 taxa
+
+# filter directly from filtered relAb table, to have the same taxa in both relAb and absAb model 
+L6_absAb_glmm <- L6_absAb_glmm[, colnames(L6_relAb_glmm_clr), drop = FALSE] # 71 taxa 
+
+```
+
+```{r}
+# Count the # of zeros in the dataset
+zero_counts <- sum(L6_absAb_glmm == 0, na.rm = TRUE) # 28.8%
+```
+
+Pseudocount & scaling
+```{r}
+min_nonzero <- min(L6_absAb_glmm[L6_absAb_glmm > 0], na.rm = TRUE) # half of the minimum non-zero value
+pseudo_count <- min_nonzero / 2 # 1.9e+6 
+
+L6_absAb_glmm_log <- log10(L6_absAb_glmm + pseudo_count) # log10 transform 
+L6_absAb_glmm_sc <- as.data.frame(scale(L6_absAb_glmm_log)) # + scale 
+
+```
+
+Final touches
+```{r}
+# check sample order & sampleIDs are rownames 
+rownames(L6_absAb_glmm_sc) == rownames(meta_Diet_glmm) # all TRUE 
+
+# factor levels
+meta_Diet_glmm$mouse <-  as.factor(meta_Diet_glmm$mouse)
+meta_Diet_glmm$cage <-  as.factor(meta_Diet_glmm$cage)
+meta_Diet_glmm$litter <-  as.factor(meta_Diet_glmm$litter)
+meta_Diet_glmm$diet <-  as.factor(meta_Diet_glmm$diet)
+meta_Diet_glmm$timepoint <-  as.factor(meta_Diet_glmm$timepoint)
+
+```
+
+
+### 2.2 GLMM 
+
+model input: 
+meta_Diet_glmm
+L6_absAb_glmm_sc
+
+```{r}
+# generates data frame for taxon subset 
+get_df_for_taxon <- function(select_taxon) {
+  L6_absAb_glmm_sc %>% 
+    tibble::rownames_to_column("SampleID")  %>% 
+    dplyr::select("SampleID", all_of(select_taxon))  %>% 
+    dplyr::left_join(y = meta_Diet_glmm %>% tibble::rownames_to_column('SampleID'), by = 'SampleID') %>% 
+    dplyr::rename(taxon = select_taxon)  %>% 
+    dplyr::mutate(diet = fct_relevel(diet, "control", "fasting", "high_fat", "high_fiber"), # change for your project, order levels -> the first one called will be used as reference
+                  timepoint = fct_relevel(timepoint, "60min", "120min", "180min"), # same for this -> list reference first
+                  taxon_name = select_taxon)
+}
+
+```
+
+
+```{r}
+# Create LME function with fixed and random effects
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon, 
+                        taxon ~ 
+                          diet * timepoint + # fixed effects
+                          (1|mouse)) # random effects
+  print(taxon) # to print the taxa names to the console to identify taxa with warnings
+  return(fit)
+}
+
+```
+
+
+```{r}
+# create model to summarize statistics (taxon, metadata, coef, stderr, pval, name)
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+  para <- as.data.frame(lm_summary)[, -c(3:4)] # to keep intercept
+  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+
+```
+
+
+
+```{r, message=TRUE, warning=TRUE, error=TRUE}
+# run model
+all_taxa <- colnames(L6_absAb_glmm_sc)
+output_fit_summary <- NULL
+output_models_absAb_Diet <- list()
+
+# do not change anything in this loop! This just calls the created functions.
+# if changes should be made, change functions above instead
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_absAb_Diet[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+
+```
+
+
+```{r}
+# R2 model fit 
+r2 <- lapply(output_models_absAb_Diet, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+
+# mean fit over all models 
+mean(r2$R2c) 
+mean(r2$R2m) 
+```
+
+Output of model with mouse as random effect: no warnings, 9 single boundary taxa, R2c 0.63, R2m 0.44 
+
+```{r}
+# summarize all output of the model created for all taxa and apply FDR correction with BH (& add sig. levels)
+stats_absAb_Diet <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  )) # 852 observations 
+
+# to save the output to your computer
+# write.table(stats_absAb_Diet, file = "LME_absAb_Diet.txt", sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_absAb_Diet_filt <- stats_absAb_Diet %>% filter(qval < 0.1)  # 142 observations 
+
+stats_absAb_Diet_filt %>% filter(metadata != "(Intercept)") %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 57 
+stats_absAb_Diet_filt %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 57 
+stats_absAb_Diet_filt %>% filter(str_detect(metadata, ":timepoint")) %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 26 (associated with diet:timepoint) 
+
+# save output 
+# write.table(stats_absAb_Diet_filt, file = "LME_absAb_Diet_filt.txt, sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+### 2.3 EMMEANs
+
+```{r}
+# calculate for all taxa: (choose variant of interest for your data: all vs all or conditioned?)
+output_emmeans_absAb_Diet <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_absAb_Diet[[taxon]], 
+            specs = pairwise ~ timepoint | diet, 
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans_absAb_Diet <- bind_rows(output_emmeans_absAb_Diet, emm)
+} # 852 observations 
+
+# apply FDR correction across all comparisons across all taxa
+
+output_emmeans_absAb_Diet <- output_emmeans_absAb_Diet %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"))
+
+# save output
+# write.table(output_emmeans_absAb_Diet, file = 'EMM_absAb_Diet.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_absAb_Diet_filt <- filter(output_emmeans_absAb_Diet, qval < 0.1) # 90 observations 
+
+# save output
+# write.table(output_emmeans_absAb_Diet_filt, file = 'EMM_absAb_Diet_filt.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+output_emmeans_absAb_Diet_filt %>% dplyr::pull(taxon_name) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 47 
+
+# for heatmap: only extract significant taxa for 60min-120min and 60min-180min comparisons 
+top_taxa_Diet <- output_emmeans_absAb_Diet_filt %>% 
+  filter(contrast != "120min - 180min") %>% 
+  dplyr::pull(taxon_name) %>% unique() # -> for heatmap -> 46 taxa 
+
+```
+
+
+### 2.4 Heatmap
+
+re-calculate EMMs with contrasts for heatmap
+```{r, warning = F}
+# calculate emmeans 
+output_emmeans_ht_absAb_Diet <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_absAb_Diet[[taxon]],
+            specs = pairwise ~ timepoint | diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht_absAb_Diet <- bind_rows(output_emmeans_ht_absAb_Diet, emm)
+} # 1704 observations
+
+
+# filter only taxa and comparisons wanted for your project
+emmeans_absAb_Diet_filt <- filter(output_emmeans_ht_absAb_Diet, contrast == ".") # 852 observations
+
+```
+
+prepare heatmap df
+```{r}
+# prepare df
+df_filt_absAb_Diet <- 
+  emmeans_absAb_Diet_filt %>% 
+  filter(taxon_name %in% top_taxa_Diet) %>% # filter for top taxa n = 46
+  dplyr::select(diet, timepoint, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c("diet", "timepoint"), values_from = 'emmean') %>%
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.)
+
+```
+
+prepare df with signficance levels for heatmap
+```{r}
+df_heat_sign <- # dataframe containing significance values 
+  output_emmeans_absAb_Diet %>% 
+  filter(taxon_name %in% top_taxa_Diet) %>% # filter for top taxa
+  dplyr::select(contrast, diet, qval_ast, taxon_name) %>% # contrast = timepoint 
+  pivot_wider(names_from = c("diet", "contrast"), values_from = 'qval_ast') %>%
+  dplyr::select(-`control_120min - 180min`, -`fasting_120min - 180min`, -`high_fat_120min - 180min`, -`high_fiber_120min - 180min`) %>% 
+  column_to_rownames('taxon_name') %>% 
+  mutate(control = "") %>% relocate(control, .before = "control_60min - 120min") %>% 
+  mutate(fasting = "") %>% relocate(fasting, .before = "fasting_60min - 120min") %>% 
+  mutate(high_fat = "") %>% relocate(high_fat, .before = "high_fat_60min - 120min") %>% 
+  mutate(high_fiber = "") %>% relocate(high_fiber, .before = "high_fiber_60min - 120min") %>%
+  as.matrix()
+
+df_heat_sign[df_heat_sign == "ns"] <- ""
+
+# reorder the rows in df_heat_sign according to the order of the taxa in the heatmap (df_heat_emm)
+df_heat_sign <- df_heat_sign[rownames(df_filt_absAb_Diet), ]
+
+# check if the orders match
+all(rownames(df_filt_absAb_Diet) == rownames(df_heat_sign)) # if TRUE, the rows are aligned correctly
+
+```
+
+heatmap
+```{r}
+# heatmap with stats
+heat_absAb_Diet <- Heatmap(df_filt_absAb_Diet, 
+                           cluster_column_slices = F, cluster_columns = F,
+                            
+                           column_split = factor(
+                              c(rep("control", 3), rep("fasting", 3), rep("high_fat", 3), rep("high_fiber", 3)), # Einteilung oben horizontal 
+                              levels = c("control", "fasting", "high_fat", "high_fiber"), 
+                              labels = c("RCD", "Fasting", "HFaD", "HFiD")), # Umbenennung
+                            
+                           column_labels = rep(c("60min", "120min", "180min"), 4), column_names_rot = F, # Einteilung unten horizontal
+                            
+                           column_names_centered = T, name = "emmeans",
+                           column_gap = unit(c(4), "mm"),
+                            
+                           row_names_gp = grid::gpar(fontsize = 20),
+                           column_names_gp = grid::gpar(fontsize = 20),
+                           column_title_gp = grid::gpar(fontsize = 24, fontface = "bold"),
+                            
+                           width = ncol(df_filt_absAb_Diet)*unit(26, "mm"), 
+                           height = nrow(df_filt_absAb_Diet)*unit(8, "mm"),
+                           show_heatmap_legend = T,
+                           heatmap_legend_param = list(
+                              title = "Estimated Marginal Means", # Title override (optional)
+                              title_gp = gpar(fontsize = 20, fontface = "bold"),  # Legend title font
+                              labels_gp = gpar(fontsize = 20),# Legend label font size
+                              legend_height = unit(60, "mm"), # Total legend size (vertical)
+                              legend_width = unit(100, "mm"),  
+                              grid_height = unit(10, "mm"), # Size of color blocks
+                              grid_width = unit(10, "mm"),
+                              direction = "horizontal"), 
+                            
+                           cell_fun = function(j, i, x, y, width, height, fill) { # function to add text to each cell of the matrix 
+                              sig_level <- df_heat_sign[i, j]
+                              grid.text(sig_level, x, y, gp = gpar(fontsize = 18, col = "black"))
+                              }
+                            ) 
+ 
+```
+
+
+final heatmap export
+```{r}
+pdf("heatmap_absAb_Diet_interval.pdf", height = 18, width = 28)
+draw(heat_absAb_Diet, heatmap_legend_side = "bottom")
+dev.off()
+```
+
+
+##3. relative abundance TRF study 
+
+### 3.1 Prepare Data
+
+Load and prepare data
+```{r}
+meta_L6_relAb_TRF <- read.table("meta_L6_relAb_TRF.txt", sep = '\t', comment = '', header = T, check.names = F) # 178 samples, 125 columns 
+
+# filter NA samples (rarefaction)
+meta_L6_relAb_TRF <- meta_L6_relAb_TRF %>% filter(if_all(everything(), ~ !is.na(.))) # 175 samples left 
+
+# filter unnecessary columns 
+meta_L6_relAb_TRF <- meta_L6_relAb_TRF %>% 
+  dplyr::select(-passage_cycle, -ZT, -clock_group, -disrupted_clock, -colitis)  # 115 columns 
+
+# remove 210min timepoint due to low samples number
+table(meta_L6_relAb_TRF$timepoint) # 30min 63, 90min 64, 150min 43, 210min 5 
+meta_L6_relAb_TRF <- meta_L6_relAb_TRF %>% filter(timepoint != "210min") # 170 samples left 
+
+# split metadata and taxa
+rownames(meta_L6_relAb_TRF) <- NULL
+meta_L6_relAb_TRF <-  meta_L6_relAb_TRF %>% column_to_rownames("sampleID")
+meta_TRF_glmm <- meta_L6_relAb_TRF[1:13] # 170 samples, 13 metadata columns
+L6_relAb_glmm <- meta_L6_relAb_TRF[14:114] # 170 samples, 101 taxa columns
+
+```
+
+Abundance filtering
+```{r}
+# remove zero count taxa
+tmp <- L6_relAb_glmm[, colSums(L6_relAb_glmm) > 0] # 101 taxa columns -> no taxa lost
+L6_relAb_glmm <- tmp # 101 taxa
+L6_relAb_glmm <- sweep(L6_relAb_glmm, 1, rowSums(L6_relAb_glmm),'/') # re-calculate relAb
+rowSums(L6_relAb_glmm) # to control that rowSums are 1 
+
+# remove low abundant taxa
+# e.g all taxa with a relative abundance at least 0.1% in 3 samples
+tmp <- L6_relAb_glmm[, colSums(L6_relAb_glmm > 0.001) > 3] # 93 taxa columns -> 8 taxa lost
+L6_relAb_glmm <- tmp # 93 taxa
+
+# relAb, normalize filtered df to 1 again (make sure sampleID are rownames!!)
+L6_relAb_glmm <- sweep(L6_relAb_glmm, 1, rowSums(L6_relAb_glmm),'/') # relAb table without zero and low count taxa 
+rowSums(L6_relAb_glmm) # to control that rowSums are 1  
+
+```
+
+Pseudocount & clr Transformation
+```{r}
+min_nonzero <- min(L6_relAb_glmm[L6_relAb_glmm > 0], na.rm = TRUE) # half of the minimum non-zero value
+pseudo_count <- min_nonzero / 2
+
+L6_relAb_glmm_clr <- L6_relAb_glmm %>% compositions::clr(+ pseudo_count) %>% as.data.frame() 
+```
+
+Final touches
+```{r}
+# check sample order & sampleIDs are rownames 
+rownames(L6_relAb_glmm_clr) == rownames(meta_TRF_glmm) # all TRUE 
+
+# factor levels
+meta_TRF_glmm$mouse <-  as.factor(meta_TRF_glmm$mouse)
+meta_TRF_glmm$cage <-  as.factor(meta_TRF_glmm$cage)
+meta_TRF_glmm$litter <-  as.factor(meta_TRF_glmm$litter)
+meta_TRF_glmm$diet <-  as.factor(meta_TRF_glmm$diet)
+meta_TRF_glmm$genotype_group <-  as.factor(meta_TRF_glmm$genotype_group)
+meta_TRF_glmm$timepoint <-  as.factor(meta_TRF_glmm$timepoint)
+
+```
+
+
+### 3.2 GLMM
+
+```{r}
+# model input: 
+meta_TRF_glmm
+L6_relAb_glmm_clr
+#rownames(meta_TRF_glmm) == rownames(L6_relAb_glmm_clr)
+```
+
+
+```{r}
+# generates data frame for taxon subset 
+get_df_for_taxon <- function(select_taxon) {
+  L6_relAb_glmm_clr %>% 
+    tibble::rownames_to_column("SampleID")  %>% 
+    dplyr::select("SampleID", all_of(select_taxon))  %>% 
+    dplyr::left_join(y = meta_TRF_glmm %>% tibble::rownames_to_column('SampleID'), by = 'SampleID') %>% 
+    dplyr::rename(taxon = select_taxon)  %>% 
+    dplyr::mutate(diet = fct_relevel(diet, "control", "TRF"), # change for your project, order levels -> the first one called will be used as reference
+                  timepoint = fct_relevel(timepoint_2, "30min", "90min", "150min"), # same for this -> list reference first
+                  genotype_group = fct_relevel(genotype_group, "WT", "IL10-/-"), 
+                  taxon_name = select_taxon)
+}
+
+```
+
+
+```{r}
+# Create LME function with fixed and random effects
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon, 
+                        taxon ~ 
+                          diet * genotype_group * timepoint + # fixed effects
+                          (1|mouse)) # random effects
+  print(taxon) # to print the taxa names to the console to identify taxa with warnings
+  return(fit)
+}
+
+```
+
+
+```{r}
+# create model to summarize statistics (taxon, metadata, coef, stderr, pval, name)
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+  para <- as.data.frame(lm_summary)[, -c(3:4)] # to keep intercept
+  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+
+```
+
+
+
+
+```{r, message=TRUE, warning=TRUE, error=TRUE}
+# run model
+all_taxa <- colnames(L6_relAb_glmm_clr)
+output_fit_summary <- NULL
+output_models_relAb_TRF <- list()
+
+# do not change anything in this loop! This just calls the created functions.
+# if changes should be made, change functions above instead
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_relAb_TRF[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+
+```
+
+
+```{r}
+# R2 model fit 
+r2 <- lapply(output_models_relAb_TRF, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+
+# mean fit over all models 
+mean(r2$R2c) 
+mean(r2$R2m) 
+```
+
+Output of model with mouse as random effect: no warnings, 9 single boundary taxa, R2c 0.36, R2m 0.14, 46 sign. taxa
+
+```{r}
+# summarize all output of the model created for all taxa and apply FDR correction with BH (& add sig. levels)
+stats_relAb_TRF <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  )) # 1116 observations 
+
+# to save the output to your computer
+# write.table(stats_relAb_TRF, file = "LME_relAb_TRF.txt", sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_relAb_TRF_filt <- stats_relAb_TRF %>% filter(qval < 0.1)  # 88 observations
+
+stats_relAb_TRF_filt %>% filter(metadata != "(Intercept)") %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 24 
+stats_relAb_TRF_filt %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 46 
+stats_relAb_TRF_filt %>% filter(str_detect(metadata, ":timepoint")) %>% filter(str_detect(metadata, ":genotype")) %>% 
+  dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 4 (associated with diet:genotype:timepoint) 
+
+# save output 
+# write.table(stats_relAb_TRF_filt, file = "LME_relAb_TRF_filt.txt, sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+
+### 3.3 EMMEANs
+
+```{r}
+# calculate for all taxa: (choose variant of interest for your data: all vs all or conditioned?)
+output_emmeans_relAb_TRF <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_relAb_TRF[[taxon]], 
+            specs = pairwise ~ timepoint_2 | (diet * genotype_group), # timepoints within diet*genotype combinations
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans_relAb_TRF <- bind_rows(output_emmeans_relAb_TRF, emm)
+} # 1116 observations 
+
+# apply FDR correction across all comparisons across all taxa
+
+output_emmeans_relAb_TRF <- output_emmeans_relAb_TRF %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"))
+
+
+# save output
+# write.table(output_emmeans_relAb_TRF, file = 'EMM_relAb_TRF.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_relAb_TRF_filt <- filter(output_emmeans_relAb_TRF, qval < 0.1) # 42 observations 
+
+# save output
+# write.table(output_emmeans_relAb_TRF_filt, file = 'EMM_relAb_TRF_filt.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+output_emmeans_relAb_TRF_filt %>% dplyr::pull(taxon_name) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 19 
+
+# for heatmap: only extract significant taxa for 30min-90min and 30min-150min comparisons 
+top_taxa_TRF <- output_emmeans_relAb_TRF_filt %>% 
+  filter(contrast != "90min - 150min") %>% 
+  dplyr::pull(taxon_name) %>% unique() # -> for heatmap -> 19 taxa (there were no significant 90-150min anyways)
+
+```
+
+
+### 3.4 Heatmap
+
+re-calculate EMMs with contrasts for heatmap
+```{r}
+# calculate emmeans 
+output_emmeans_ht_relAb_TRF <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_relAb_TRF[[taxon]],
+            specs = pairwise ~ timepoint | (diet * genotype_group)) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht_relAb_TRF <- bind_rows(output_emmeans_ht_relAb_TRF, emm)
+} # 2232 observations
+
+# filter only taxa and comparisons wanted for your project
+emmeans_relAb_TRF_filt <- filter(output_emmeans_ht_relAb_TRF, contrast == ".") # 1116 observations
+
+```
+
+prepare heatmap df 
+```{r}
+# prepare df
+df_filt_relAb_TRF <- 
+  emmeans_relAb_TRF_filt %>% 
+  filter(taxon_name %in% top_taxa_TRF) %>% # filter for top taxa, n = 19
+  dplyr::select(diet, genotype_group, timepoint, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c("diet", "genotype_group", "timepoint"), values_from = 'emmean') %>%  
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.) # 19
+```
+
+prepare significance matrix for heatmap
+```{r}
+df_heat_sign <- # dataframe containing significance values 
+  output_emmeans_relAb_TRF %>% 
+  filter(taxon_name %in% top_taxa_TRF) %>% # filter for top taxa, n = 24
+  dplyr::select(contrast, diet, genotype_group, qval_ast, taxon_name) %>% # contrast = timepoint 
+  pivot_wider(names_from = c("diet", "genotype_group", "contrast"), values_from = 'qval_ast') %>%
+  dplyr::select(-matches("90min - 150min")) %>% 
+  column_to_rownames('taxon_name') %>% 
+  
+  mutate(control_WT = "") %>% relocate(control_WT, .before = "control_WT_30min - 90min") %>% 
+  mutate(TRF_WT = "") %>% relocate(TRF_WT, .before = "TRF_WT_30min - 90min") %>% 
+  mutate(`control_IL10-/-` = "") %>% relocate(`control_IL10-/-`, .before = "control_IL10-/-_30min - 90min") %>% 
+  mutate(`TRF_IL10-/-` = "") %>% relocate(`TRF_IL10-/-`, .before = "TRF_IL10-/-_30min - 90min") %>% 
+  as.matrix()
+
+df_heat_sign[df_heat_sign == "ns"] <- ""
+
+# reorder the rows in df_heat_sign according to the order of the taxa in the heatmap (df_heat_emm)
+df_heat_sign <- df_heat_sign[rownames(df_filt_relAb_TRF), ]
+
+# check if the orders match
+all(rownames(df_filt_relAb_TRF) == rownames(df_heat_sign)) # if TRUE, the rows are aligned correctly
+```
+
+heatmap 
+```{r}
+# heatmap with stats
+heat_relAb_TRF <- Heatmap(df_filt_relAb_TRF, 
+                           cluster_column_slices = F, cluster_columns = F,
+                            
+                           column_split = factor(
+                              c(rep("control_WT", 3), rep("TRF_WT", 3), rep("control_IL10-/-", 3), rep("TRF_IL10-/-", 3)), # Einteilung oben horizontal 
+                              levels = c("control_WT", "TRF_WT", "control_IL10-/-", "TRF_IL10-/-"), 
+                              labels = c("WT RCD-AL", "WT RCD-TRF", "IL10-/- RCD-AL", "IL10-/- RCD-TRF")), # Umbenennung
+                            
+                           column_labels = rep(c("30min", "90min", "150min"), 4), column_names_rot = F, # Einteilung unten horizontal
+                            
+                           column_names_centered = T, name = "emmeans",
+                           column_gap = unit(c(4), "mm"),
+                            
+                           row_names_gp = grid::gpar(fontsize = 20),
+                           column_names_gp = grid::gpar(fontsize = 20),
+                           column_title_gp = grid::gpar(fontsize = 24, fontface = "bold"),
+                            
+                           width = ncol(df_filt_relAb_TRF)*unit(26, "mm"), 
+                           height = nrow(df_filt_relAb_TRF)*unit(8, "mm"),
+                           show_heatmap_legend = T,
+                           heatmap_legend_param = list(
+                              title = "Estimated Marginal Means", # Title override (optional)
+                              title_gp = gpar(fontsize = 20, fontface = "bold"),  # Legend title font
+                              labels_gp = gpar(fontsize = 20),# Legend label font size
+                              legend_height = unit(60, "mm"), # Total legend size (vertical)
+                              legend_width = unit(100, "mm"),  
+                              grid_height = unit(10, "mm"), # Size of color blocks
+                              grid_width = unit(10, "mm"),
+                              direction = "horizontal"), 
+                            
+                           cell_fun = function(j, i, x, y, width, height, fill) { # function to add text to each cell of the matrix 
+                              sig_level <- df_heat_sign[i, j]
+                              grid.text(sig_level, x, y, gp = gpar(fontsize = 18, col = "black"))
+                              }
+                            ) 
+ 
+```
+
+
+final heatmap export
+```{r}
+pdf("heatmap_relAb_TRF_interval.pdf", height = 10, width = 25)
+draw(heat_relAb_TRF, heatmap_legend_side = "bottom")
+dev.off()
+```
+
+
+##4. absolute abundance TRF study 
+
+### 4.1 Prepare Data
+
+Load and prepare data
+```{r}
+meta_L6_relAb_TRF.txt <- read.table("meta_L6_relAb_TRF.txt", sep = '\t', comment = '', header = T, check.names = F) # 178 samples, 125 columns 
+
+# filter NA samples (rarefaction)
+meta_L6_relAb_TRF.txt <- meta_L6_relAb_TRF.txt %>% filter(if_all(everything(), ~ !is.na(.))) # 175 samples left 
+
+# filter unnecessary columns 
+meta_L6_relAb_TRF.txt <- meta_L6_relAb_TRF.txt %>% 
+  dplyr::select(-passage_cycle, -ZT, -clock_group, -disrupted_clock, -colitis) 
+
+# remove 210min timepoint due to low samples number
+table(meta_L6_relAb_TRF.txt$timepoint) # 30min 63, 90min 64, 150min 43, 210min 5 
+meta_L6_relAb_TRF.txt <- meta_L6_relAb_TRF.txt %>% filter(timepoint != "210min") # 170 samples left 
+
+# split metadata and taxa
+rownames(meta_L6_relAb_TRF.txt) <- NULL
+meta_L6_relAb_TRF.txt <-  meta_L6_relAb_TRF.txt %>% column_to_rownames("sampleID")
+meta_TRF_glmm <- meta_L6_relAb_TRF.txt[1:13] # 170 samples, 13 metadata columns
+L6_relAb_glmm <- meta_L6_relAb_TRF.txt[14:114] # 170 samples, 101 taxa columns
+
+```
+
+Calculate normalized absAb (based on 16S rRNA GCN/g of stool -> "microbial load")
+```{r}
+# check correct rownames (sample) order
+rownames(meta_TRF_glmm) == rownames(L6_relAb_glmm) # all TRUE
+L6_absAb_glmm <- meta_TRF_glmm$Microbial_Load * L6_relAb_glmm # multiply relAb profiles with microbial load per sample -> 101 taxa
+```
+
+Abundance filtering
+```{r}
+# remove zero count taxa
+tmp <- L6_absAb_glmm[, colSums(L6_absAb_glmm) > 0] # 101 taxa columns -> no taxa lost
+L6_absAb_glmm <- tmp # 101 taxa
+
+# filter directly from filtered relAb table, to have the same taxa in both relAb and absAb model 
+L6_absAb_glmm <- L6_absAb_glmm[, colnames(L6_relAb_glmm_clr), drop = FALSE] # 93 taxa 
+
+```
+
+Pseudocount & scaling
+```{r}
+min_nonzero <- min(L6_absAb_glmm[L6_absAb_glmm > 0], na.rm = TRUE) # half of the minimum non-zero value
+pseudo_count <- min_nonzero / 2 
+
+L6_absAb_glmm_log <- log10(L6_absAb_glmm + pseudo_count) # log10 transform
+L6_absAb_glmm_sc <- as.data.frame(scale(L6_absAb_glmm_log))
+
+```
+
+Final touches
+```{r}
+# check sample order & sampleIDs are rownames 
+rownames(L6_absAb_glmm_sc) == rownames(meta_TRF_glmm) # all TRUE 
+
+# factor levels
+meta_TRF_glmm$mouse <-  as.factor(meta_TRF_glmm$mouse)
+meta_TRF_glmm$cage <-  as.factor(meta_TRF_glmm$cage)
+meta_TRF_glmm$litter <-  as.factor(meta_TRF_glmm$litter)
+meta_TRF_glmm$diet <-  as.factor(meta_TRF_glmm$diet)
+meta_TRF_glmm$genotype_group <-  as.factor(meta_TRF_glmm$genotype_group)
+meta_TRF_glmm$timepoint <-  as.factor(meta_TRF_glmm$timepoint)
+
+
+```
+
+
+### 4.2 GLMM
+
+```{r}
+# model input: 
+meta_TRF_glmm
+L6_absAb_glmm_sc
+#rownames(meta_TRF_glmm) == rownames(L6_absAb_glmm_clr)
+```
+
+
+```{r}
+# generates data frame for taxon subset 
+get_df_for_taxon <- function(select_taxon) {
+  L6_absAb_glmm_sc %>% 
+    tibble::rownames_to_column("SampleID")  %>% 
+    dplyr::select("SampleID", all_of(select_taxon))  %>% 
+    dplyr::left_join(y = meta_TRF_glmm %>% tibble::rownames_to_column('SampleID'), by = 'SampleID') %>% 
+    dplyr::rename(taxon = select_taxon)  %>% 
+    dplyr::mutate(diet = fct_relevel(diet, "control", "TRF"), # change for your project, order levels -> the first one called will be used as reference
+                  timepoint_2 = fct_relevel(timepoint, "30min", "90min", "150min"), # same for this -> list reference first
+                  genotype_group = fct_relevel(genotype_group, "WT", "IL10-/-"), 
+                  taxon_name = select_taxon)
+}
+
+```
+
+
+```{r}
+# Create LME function with fixed and random effects
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon, 
+                        taxon ~ 
+                          diet * genotype_group * timepoint + # fixed effects
+                          (1|mouse)) # random effects
+  print(taxon) # to print the taxa names to the console to identify taxa with warnings
+  return(fit)
+}
+
+```
+
+
+```{r}
+# create model to summarize statistics (taxon, metadata, coef, stderr, pval, name)
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+  para <- as.data.frame(lm_summary)[, -c(3:4)] # to keep intercept
+  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+
+```
+
+
+```{r, message=TRUE, warning=TRUE, error=TRUE}
+# run model
+all_taxa <- colnames(L6_absAb_glmm_sc)
+output_fit_summary <- NULL
+output_models_absAb_TRF <- list()
+
+# do not change anything in this loop! This just calls the created functions.
+# if changes should be made, change functions above instead
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_absAb_TRF[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+
+```
+
+
+```{r}
+# R2 model fit 
+r2 <- lapply(output_models_absAb_TRF, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+
+# mean fit over all models 
+mean(r2$R2c) 
+mean(r2$R2m) 
+```
+
+Output of model with mouse as random effect: no warnings, 7 single boundary taxa, R2c 0.34, R2m 0.16, 46 sign. taxa
+
+
+```{r}
+# summarize all output of the model created for all taxa and apply FDR correction with BH (& add sig. levels)
+stats_absAb_TRF <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  )) # 1116 observations 
+
+# to save the output to your computer
+# write.table(stats_absAb_TRF, file = "LME_absAb_TRF.txt", sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_absAb_TRF_filt <- stats_absAb_TRF %>% filter(qval < 0.1)  # 22 observations
+
+stats_absAb_TRF_filt %>% filter(metadata != "(Intercept)") %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 19 
+stats_absAb_TRF_filt %>% dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 19 
+stats_absAb_TRF_filt %>% filter(str_detect(metadata, ":timepoint")) %>% filter(str_detect(metadata, ":genotype")) %>% 
+  dplyr::pull(taxon) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 0 (associated with diet:genotype:timepoint) 
+
+# save output 
+# write.table(stats_absAb_TRF_filt, file = "LME_absAb_TRF_filt.txt, sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+### 4.3 EMMEANs
+
+```{r}
+# calculate for all taxa: (choose variant of interest for your data: all vs all or conditioned?)
+output_emmeans_absAb_TRF <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_absAb_TRF[[taxon]], 
+            specs = pairwise ~ timepoint | (diet * genotype_group), # timepoints within diet*genotype combinations
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans_absAb_TRF <- bind_rows(output_emmeans_absAb_TRF, emm)
+} # 1116 observations 
+
+# apply FDR correction across all comparisons across all taxa:
+# optionally all comparisons desired to test can be filtered and then only those relevant to the research question 
+# could be corrected by BH too reduce number of comparisons (might be too large for some projects).
+
+output_emmeans_absAb_TRF <- output_emmeans_absAb_TRF %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"))
+
+
+# save output
+# write.table(output_emmeans_absAb_TRF, file = 'EMM_absAb_TRF.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_absAb_TRF_filt <- filter(output_emmeans_absAb_TRF, qval < 0.1) # 184 observations 
+
+# save output
+# write.table(output_emmeans_absAb_TRF_filt, file = 'EMM_absAb_TRF_filt.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+output_emmeans_absAb_TRF_filt %>% dplyr::pull(taxon_name) %>% unique() %>% as.data.frame() %>% View() # unique taxa: 76 
+
+# for heatmap: only extract significant taxa for 30min - 90min and 30min - 150min comparisons 
+top_taxa_TRF <- output_emmeans_absAb_TRF_filt %>% 
+  filter(contrast != "90min - 150min") %>% 
+  dplyr::pull(taxon_name) %>% unique() # -> for heatmap -> 25 taxa 
+
+```
+
+
+### 4.4 Heatmap
+
+re-calculate EMMs with contrasts for heatmap
+```{r}
+# calculate emmeans 
+output_emmeans_ht_absAb_TRF <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_absAb_TRF[[taxon]],
+            specs = pairwise ~ timepoint | (diet * genotype_group)) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht_absAb_TRF <- bind_rows(output_emmeans_ht_absAb_TRF, emm)
+} # 2232 observations
+
+# filter only taxa and comparisons wanted for your project
+emmeans_absAb_TRF_filt <- filter(output_emmeans_ht_absAb_TRF, contrast == ".") # 1116 observations
+
+```
+
+
+prepare heatmap df 
+```{r}
+# prepare df
+df_filt_absAb_TRF <- 
+  emmeans_absAb_TRF_filt %>% 
+  filter(taxon_name %in% top_taxa_TRF) %>% # filter for top taxa, n = 63
+  dplyr::select(diet, genotype_group, timepoint, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c("diet", "genotype_group", "timepoint"), values_from = 'emmean') %>%  
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.) # 19
+```
+
+prepare significance matrix for heatmap
+```{r}
+df_heat_sign <- # dataframe containing significance values 
+  output_emmeans_absAb_TRF %>% 
+  filter(taxon_name %in% top_taxa_TRF) %>% # filter for top taxa, n = 63
+  dplyr::select(contrast, diet, genotype_group, qval_ast, taxon_name) %>% # contrast = timepoint 
+  pivot_wider(names_from = c("diet", "genotype_group", "contrast"), values_from = 'qval_ast') %>%
+  dplyr::select(-matches("90min - 150min")) %>% 
+  column_to_rownames('taxon_name') %>% 
+  
+  mutate(control_WT = "") %>% relocate(control_WT, .before = "control_WT_30min - 90min") %>% 
+  mutate(TRF_WT = "") %>% relocate(TRF_WT, .before = "TRF_WT_30min - 90min") %>% 
+  mutate(`control_IL10-/-` = "") %>% relocate(`control_IL10-/-`, .before = "control_IL10-/-_30min - 90min") %>% 
+  mutate(`TRF_IL10-/-` = "") %>% relocate(`TRF_IL10-/-`, .before = "TRF_IL10-/-_30min - 90min") %>% 
+  as.matrix()
+
+df_heat_sign[df_heat_sign == "ns"] <- ""
+
+# reorder the rows in df_heat_sign according to the order of the taxa in the heatmap (df_heat_emm)
+df_heat_sign <- df_heat_sign[rownames(df_filt_absAb_TRF), ]
+
+# check if the orders match
+all(rownames(df_filt_absAb_TRF) == rownames(df_heat_sign)) # if TRUE, the rows are aligned correctly
+```
+
+heatmap 
+```{r}
+# heatmap with stats
+heat_absAb_TRF <- Heatmap(df_filt_absAb_TRF, 
+                           cluster_column_slices = F, cluster_columns = F,
+                            
+                           column_split = factor(
+                              c(rep("control_WT", 3), rep("TRF_WT", 3), rep("control_IL10-/-", 3), rep("TRF_IL10-/-", 3)), # Einteilung oben horizontal 
+                              levels = c("control_WT", "TRF_WT", "control_IL10-/-", "TRF_IL10-/-"), 
+                              labels = c("WT RCD-AL", "WT RCD-TRF", "IL10-/- RCD-AL", "IL10-/- RCD-TRF")), # Umbenennung
+                            
+                           column_labels = rep(c("30min", "90min", "150min"), 4), column_names_rot = F, # Einteilung unten horizontal
+                            
+                           column_names_centered = T, name = "emmeans",
+                           column_gap = unit(c(4), "mm"),
+                            
+                           row_names_gp = grid::gpar(fontsize = 20),
+                           column_names_gp = grid::gpar(fontsize = 20),
+                           column_title_gp = grid::gpar(fontsize = 24, fontface = "bold"),
+                            
+                           width = ncol(df_filt_absAb_TRF)*unit(26, "mm"), 
+                           height = nrow(df_filt_absAb_TRF)*unit(8, "mm"),
+                           show_heatmap_legend = T,
+                           heatmap_legend_param = list(
+                              title = "Estimated Marginal Means", # Title override (optional)
+                              title_gp = gpar(fontsize = 20, fontface = "bold"),  # Legend title font
+                              labels_gp = gpar(fontsize = 20),# Legend label font size
+                              legend_height = unit(60, "mm"), # Total legend size (vertical)
+                              legend_width = unit(100, "mm"),  
+                              grid_height = unit(10, "mm"), # Size of color blocks
+                              grid_width = unit(10, "mm"),
+                              direction = "horizontal"), 
+                            
+                           cell_fun = function(j, i, x, y, width, height, fill) { # function to add text to each cell of the matrix 
+                              sig_level <- df_heat_sign[i, j]
+                              grid.text(sig_level, x, y, gp = gpar(fontsize = 18, col = "black"))
+                              }
+                            ) 
+ 
+```
+
+
+final heatmap export
+```{r}
+pdf("heatmap_absAb_TRF_interval.pdf", height = 18, width = 26)
+draw(heat_absAb_TRF, heatmap_legend_side = "bottom")
+dev.off()
+```
+
+
+
+# Suppl. Figure 8 - GLMMs to compare HFiD and TRF 
+
+##1. L2 - relative abundance
+
+###1.1 Prepare Data
+
+```{r}
+metadata_hfi_trf <- metadata_QP_passage %>% filter(project == "diet_study" | project == "TRF_study") %>% filter(genotype_group == "WT") %>% filter(diet != "high_fat" &  diet != "fasting")
+
+metadata_hfi_trf <- metadata_hfi_trf %>%
+  mutate(diet_project = paste(diet, project, sep = "_"))
+```
+
+```{r}
+relAb_L2 <- sweep(L2_counts, 1, rowSums(L2_counts),'/') 
+
+relAb_L2_filt <- relAb_L2[, colSums(relAb_L2 > 0.01) > 3]
+
+relAb_L2_filt <- sweep(relAb_L2_filt, 1, rowSums(relAb_L2_filt),'/') 
+
+rowSums(relAb_L2_filt)
+
+relAb_L2_filt <- relAb_L2_filt %>% rownames_to_column('sampleID')
+
+relAb_L2_filt_meta <- left_join(relAb_L2_filt, metadata_QP_interval) 
+
+```
+
+clr transformation
+```{r}
+phylum_cols <- grep("^p_", names(relAb_L2_filt_meta), value = TRUE)
+
+relAb_L2_mean <- relAb_L2_filt_meta %>%
+  group_by(mouse) %>%
+  summarise(
+    across(all_of(phylum_cols), ~ mean(.x, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+relAb_L2_mean <- relAb_L2_mean %>% column_to_rownames('mouse')
+relAb_L2_mean_filt <- relAb_L2_mean[, colSums(relAb_L2_mean > 0.01) > 3] # 44 71 ->  low abundant taxa removed 
+relAb_L2_mean_filt <- sweep(relAb_L2_mean_filt, 1, rowSums(relAb_L2_mean_filt),'/') 
+
+# pseudocount and clr transformation 
+min_nonzero <- min(relAb_L2_mean_filt[relAb_L2_mean_filt > 0], na.rm = TRUE)
+
+pseudo_count <- min_nonzero / 2
+
+relAb_L2_mean_clr <- compositions::clr(relAb_L2_mean_filt + pseudo_count) 
+
+#metadata_hfi_trf <- metadata_hfi_trf  %>% rownames_to_column(var = "mouse")
+
+relAb_L2_mean_clr <- relAb_L2_mean_clr %>% as.data.frame() %>% rownames_to_column('mouse')
+relAb_L2_mean_clr <- semi_join(relAb_L2_mean_clr, metadata_hfi_trf) 
+metadata_hfi_trf <- semi_join(metadata_hfi_trf, relAb_L2_mean_clr)
+
+relAb_L2_mean_clr <- arrange(relAb_L2_mean_clr, mouse) 
+metadata_hfi_trf <- arrange(metadata_hfi_trf, mouse) 
+
+head(relAb_L2_mean_clr$mouse) 
+head(metadata_hfi_trf$mouse)
+
+metadata_hfi_trf <- metadata_hfi_trf  %>% column_to_rownames(var = "mouse")
+relAb_L2_mean_clr <- relAb_L2_mean_clr  %>% column_to_rownames(var = "mouse")
+metadata_hfi_trf <- metadata_hfi_trf[, -1]
+```
+
+### 1.2 GLMM 
+comapre AL TRF study, TRF TRF study and HFiD against RCD diet study
+```{r}
+get_df_for_taxon <- function(select_taxon) {
+  relAb_L2_mean_clr |>
+    tibble::rownames_to_column("sampleID") |>
+    dplyr::select("sampleID", select_taxon) |>
+    dplyr::left_join(y = metadata_hfi_trf |> tibble::rownames_to_column('sampleID'), by = 'sampleID') |>
+    dplyr::rename(taxon = select_taxon) |>
+    dplyr::mutate(
+      diet = fct_relevel(diet_project, "control_diet_study", "control_TRF_study", "high_fiber_diet_study", "TRF_TRF_study"),
+      project = fct_relevel(project, "diet_study", "TRF_study"),
+      cage = fct_relevel(cage, "A_1", "A_2", "A_5", "A_6", "C_1", "C_2", "C_3", "C_4", "C_5", "C_6", "C_7", "C_8", "C_9", "C_10", "C_11", "C_12", "C_13", "C_14", "C_15", "C_16"),
+      taxon_name = select_taxon
+    )
+}
+
+```
+
+
+```{r}
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon,  
+                        taxon ~ 
+                          diet + 
+                          (1|cage))
+  print(taxon) 
+  return(fit)
+}
+
+```
+
+```{r}
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+para <- as.data.frame(lm_summary)[, -c(3:4)]  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+```
+
+```{r}
+all_taxa <- colnames(relAb_L2_mean_clr)
+output_fit_summary <- NULL
+output_models_mean_relAb <- list()
+```
+
+```{r}
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_mean_relAb[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+```
+
+
+```{r}
+stats_relAb_hfi_trf <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  ))
+```
+
+
+```{r}
+write.table(stats_relAb_hfi_trf, file = 'LME_stats_relAb_hfi_trf_seperate_L2.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_relAb_filt_hfi_trf <- stats_relAb_hfi_trf %>% filter(qval < 0.1)  # 155 observations 
+
+```
+
+
+
+###1.3 EMMEANS
+```{r}
+output_emmeans <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_mean_relAb[[taxon]], 
+            specs = pairwise ~ diet, 
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans <- bind_rows(output_emmeans, emm)
+}
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+```
+
+```{r}
+output_emmeans_BH_filt <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+
+write.table(output_emmeans_BH_filt, file = 'EMM_stats_relAb_hfi_trf_seperate_L2.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+
+output_emmeans_relAb_filt <- output_emmeans 
+
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+unique(tmp$taxon_name) %>% as.data.frame() %>% View()
+```
+
+
+```{r}
+output_emmeans_relAb_BH_filt <- output_emmeans_relAb_filt %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+```
+
+
+```{r}
+#save output
+write.table(output_emmeans_relAb_BH_filt, file = 'EMM_stats_relAb_hfi_trf_seperate_L2.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_relAb_BH_filt_sig <- filter(output_emmeans_relAb_BH_filt, qval < 0.1) # 45 observations 
+
+#save output
+write.table(output_emmeans_relAb_BH_filt_sig, file = 'EMM_stats_relAb_sig_hfi_trf_seperate_L2.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+unique(output_emmeans_relAb_BH_filt_sig$taxon_name) %>% as.data.frame() %>% View # 36 unique taxa 
+```
+
+```{r}
+Wald_fct <- function(output_models_mean_relAb) {
+  confint(output_models_mean_relAb, method="Wald")
+}
+
+# for all models 
+r2 <- lapply(output_models_mean_relAb, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+confint <- lapply(output_models_mean_relAb, confint) 
+confint_wald <- lapply(output_models_mean_relAb, Wald_fct)
+
+write.table(r2, file = "r2_mean_relAb_L2_HFiD_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint, file = "confint_likelihood_mean_relAb_L2_HFiD_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint_wald, file = "confint_Waald_mean_relAb_L2_HFiD_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+```
+
+
+###1.4 Heatmap
+```{r}
+emmeans_filt <- filter(output_emmeans_ht, contrast == ".") 
+```
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+```
+
+```{r}
+taxa_list_relAb <- c(
+  "p_Bacteroidetes",
+  "p_Cyanobacteria",
+  "p_Deferribacteres",
+  "p_Firmicutes",
+  "p_Proteobacteria",
+  "p_Tenericutes",
+  "p_Verrucomicrobia"
+)
+  
+
+emmeans_filt_relAb <- emmeans_filt %>% filter(taxon_name %in% taxa_list_relAb)
+```
+
+
+```{r}
+df_filt_trf_hfi <- 
+  emmeans_filt_relAb %>% 
+  dplyr::select(diet, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c('diet'), values_from = 'emmean') %>%  
+  dplyr::select("taxon_name", "control_diet_study", "control_TRF_study", "high_fiber_diet_study", "TRF_TRF_study") %>% 
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.)
+
+#column_labels <- c("Control", "Intervention")
+
+# create heatmap
+pdf("GLMM_hfi_trf_seperate_L2.pdf", width = 8, height=6)
+Heatmap(df_filt_trf_hfi,
+                      cluster_column_slices = FALSE,
+                      cluster_columns = FALSE,
+                      column_names_rot = FALSE,
+                      column_names_centered = TRUE,
+                      name = "emmeans",
+                      column_gap = unit(4, "mm"),
+                      row_names_gp = grid::gpar(fontsize = 16),
+                      column_names_gp = grid::gpar(fontsize = 16),
+                      width = ncol(df_filt_trf_hfi) * unit(26, "mm"),
+                      height = nrow(df_filt_trf_hfi) * unit(8, "mm"),
+                      show_heatmap_legend = FALSE,
+                      heatmap_legend_param = list(legend_gp = gpar(fontsize = 16))
+)
+dev.off()
+```
+
+##2. L6 - relative abundance
+###2.1 Preparation
+
+```{r}
+metadata_hfi_trf <- metadata_hfi_trf %>% rownames_to_column('mouse')
+
+meta_L6_mean_relAb_hfi_trf <- left_join(metadata_hfi_trf, meta_L6_mean_relAb)
+
+#meta_L6_mean_relAb_hfi_trf <- meta_L6_mean_relAb_hfi_trf %>% rownames_to_column('sampleID')
+
+taxa_pattern <- "^g_|^f_|^o_|^c_|^p_|^k_"
+taxa_cols <- names(meta_L6_mean_relAb_hfi_trf)[grepl(taxa_pattern, names(meta_L6_mean_relAb_hfi_trf))]
+
+taxa_table_hfi_trf <- meta_L6_mean_relAb_hfi_trf[, c("mouse", taxa_cols)]
+
+metadata_cols <- setdiff(names(meta_L6_mean_relAb_hfi_trf), taxa_cols)
+metadata_hfi_trf<- meta_L6_mean_relAb_hfi_trf[, metadata_cols]
+rownames(metadata_hfi_trf) <- NULL
+
+metadata_hfi_trf <- metadata_hfi_trf %>% column_to_rownames('mouse')
+
+```
+
+```{r}
+rownames(taxa_table_hfi_trf) <- NULL
+taxa_table_hfi_trf <- taxa_table_hfi_trf %>% column_to_rownames('mouse')
+
+tmp <- taxa_table_hfi_trf[, colSums(taxa_table_hfi_trf, na.rm = T) > 0]
+dim(taxa_table_hfi_trf) # 616 (samples) 116 (taxa)
+dim(tmp) # 616 (samples) 116 (taxa)
+
+relAb_hfi_trf_filt <- taxa_table_hfi_trf[, colSums(taxa_table_hfi_trf > 0.001) > 3] # 44 71 ->  low abundant taxa removed 
+
+relAb_hfi_trf_filt <- sweep(relAb_hfi_trf_filt, 1, rowSums(relAb_hfi_trf_filt),'/') 
+# to control that rowSums are 1  
+rowSums(relAb_hfi_trf_filt)
+
+min_nonzero <- min(relAb_hfi_trf_filt[relAb_hfi_trf_filt > 0], na.rm = TRUE)
+
+pseudo_count <- min_nonzero / 2
+
+relAb_hfi_trf_clr <- compositions::clr(relAb_hfi_trf_filt + pseudo_count) 
+
+relAb_hfi_trf_clr <- relAb_hfi_trf_clr %>% as.data.frame() %>% rownames_to_column('sampleID')
+metadata_hfi_trf <- metadata_hfi_trf %>% rownames_to_column('sampleID')
+relAb_hfi_trf_clr <- semi_join(relAb_hfi_trf_clr, metadata_hfi_trf) # semi join: keep all rows in x that have a match in y
+hfi_trf_metadata_rf <- semi_join(metadata_hfi_trf, relAb_hfi_trf_clr)
+
+relAb_hfi_trf_clr <- arrange(relAb_hfi_trf_clr, sampleID) 
+hfi_trf_metadata_rf <- arrange(hfi_trf_metadata_rf, sampleID) 
+
+head(relAb_hfi_trf_clr$sampleID) 
+head(hfi_trf_metadata_rf$sampleID)
+
+hfi_trf_metadata_rf <- hfi_trf_metadata_rf  %>% column_to_rownames(var = "sampleID")
+relAb_hfi_trf_clr <- relAb_hfi_trf_clr  %>% column_to_rownames(var = "sampleID")
+
+```
+
+###2.2 GLMM
+comapre AL TRF study, TRF TRF study and HFiD against RCD diet study
+```{r}
+get_df_for_taxon <- function(select_taxon) {
+  relAb_hfi_trf_clr |>
+    tibble::rownames_to_column("sampleID") |>
+    dplyr::select("sampleID", select_taxon) |>
+    dplyr::left_join(y = hfi_trf_metadata_rf |> tibble::rownames_to_column('sampleID'), by = 'sampleID') |>
+    dplyr::rename(taxon = select_taxon) |>
+    dplyr::mutate(
+      diet = fct_relevel(diet_project, "control_diet_study", "control_TRF_study", "high_fiber_diet_study", "TRF_TRF_study"),
+      project = fct_relevel(project, "diet_study", "TRF_study"),
+      cage = fct_relevel(cage, "A_1", "A_2", "A_5", "A_6", "C_1", "C_2", "C_3", "C_4", "C_5", "C_6", "C_7", "C_8", "C_9", "C_10", "C_11", "C_12", "C_13", "C_14", "C_15", "C_16"),
+      taxon_name = select_taxon
+    )
+}
+```
+
+
+```{r}
+get_fit_for_taxon <- function(df_for_taxon) {
+  fit <- lmerTest::lmer(data = df_for_taxon,  
+                        taxon ~ 
+                          diet + 
+                          (1|cage))
+  print(taxon) # to print the taxa names to the console to identify taxa with warnings
+  return(fit)
+}
+
+```
+
+```{r}
+fit_summary_function <- function(fit, select_taxon) {
+  lm_summary <- coef(summary(fit))
+  #para <- as.data.frame(lm_summary)[-1, -c(3:4)]
+para <- as.data.frame(lm_summary)[, -c(3:4)]  #para$name <- rownames(lm_summary)[-1]
+  para$name <- rownames(lm_summary) # to keep intercept
+  names(para) <- c('coef','stderr','pval','name')
+  para <- para %>% 
+    rownames_to_column('metadata') %>% 
+    mutate(taxon = select_taxon) %>% 
+    dplyr::select(taxon, metadata, coef, stderr, pval, name)
+  return(para)
+}
+```
+
+```{r}
+all_taxa <- colnames(relAb_hfi_trf_clr)
+output_fit_summary <- NULL
+output_models_mean_relAb <- list()
+```
+
+```{r}
+for (taxon in all_taxa) {
+  # calculate model
+  df_for_taxon <- get_df_for_taxon(taxon)
+  fit_for_taxon <- get_fit_for_taxon(df_for_taxon)
+  fit_summary <- fit_summary_function(fit_for_taxon, taxon)
+  # save outputs 
+  output_fit_summary <- bind_rows(output_fit_summary, fit_summary)
+  suppressWarnings(output_models_mean_relAb[taxon] <- fit_for_taxon)
+  print(taxon)
+}
+```
+19 single boundaries
+
+```{r}
+stats_relAb_hfi_trf <- output_fit_summary %>% mutate(qval = p.adjust(pval, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.05 ~ "*",
+    qval < 0.05 & qval >= 0.01 ~ "**",
+    qval < 0.01 & qval >= 0.001 ~ "***",
+    qval < 0.001 ~ "****"
+  ))
+```
+
+
+```{r}
+write.table(stats_relAb_hfi_trf, file = 'LME_stats_relAb_hfi_trf_sperate_L6.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter significance
+stats_relAb_filt_hfi_trf <- stats_relAb_hfi_trf %>% filter(qval < 0.1)  # 155 observations 
+
+```
+
+###2.3 EMMEANS
+```{r}
+output_emmeans <- NULL
+
+# if p-values are wanted, needed if single comparisons should be plotted
+for (taxon in all_taxa) {
+  emm <- 
+    emmeans(output_models_mean_relAb[[taxon]], 
+            specs = pairwise ~ diet, 
+            type = 'response',
+            adjust = "none")$contrasts %>% 
+    as.data.frame() %>% 
+    mutate(taxon_name = taxon)
+  output_emmeans <- bind_rows(output_emmeans, emm)
+}
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+```
+
+```{r}
+output_emmeans_BH_filt <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+
+write.table(output_emmeans_BH_filt, file = 'EMM_stats_relAb_hfi_trf_seperate_L6.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+```
+
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+
+output_emmeans_relAb_filt <- output_emmeans 
+
+```
+
+```{r}
+tmp <- output_emmeans %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) #%>% filter(qval < 0.1)
+unique(tmp$taxon_name) %>% as.data.frame() %>% View()
+```
+
+
+```{r}
+output_emmeans_relAb_BH_filt <- output_emmeans_relAb_filt %>% 
+  mutate(qval = p.adjust(p.value, method = 'BH')) %>% 
+  mutate(qval_ast = case_when(
+    qval >= 0.1 ~ "ns",
+    qval < 0.1 & qval >= 0.01 ~ "*",
+    qval < 0.01 & qval >= 0.001 ~ "**",
+    qval < 0.001 & qval >= 0.0001 ~ "***",
+    qval < 0.0001 ~ "****"
+  )) 
+```
+
+
+```{r}
+#save output
+write.table(output_emmeans_relAb_BH_filt, file = 'EMM_stats_relAb_hfi_trf_seperate_L6.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+# filter for only sig. 
+output_emmeans_relAb_BH_filt_sig <- filter(output_emmeans_relAb_BH_filt, qval < 0.1) # 45 observations 
+
+#save output
+write.table(output_emmeans_relAb_BH_filt_sig, file = 'EMM_stats_relAb_sig_hfi_trf_seperate_L6.txt', sep = "\t",quote = FALSE, row.names = FALSE)
+
+unique(output_emmeans_relAb_BH_filt_sig$taxon_name) %>% as.data.frame() %>% View # 36 unique taxa 
+```
+
+
+```{r}
+output_emmeans_relAb_BH_filt_sig_HFi_TRF_2 <- filter(output_emmeans_relAb_BH_filt_sig, contrast == "control_diet_study - control_TRF_study" | contrast == "control_diet_study - high_fiber_diet_study" | contrast == "control_diet_study - TRF_TRF_study") 
+unique(output_emmeans_relAb_BH_filt_sig_HFi_TRF_2$taxon_name) %>% as.data.frame() %>% View 
+```
+
+```{r}
+Wald_fct <- function(output_models_mean_relAb) {
+  confint(output_models_mean_relAb, method="Wald")
+}
+
+# for all models 
+r2 <- lapply(output_models_mean_relAb, r.squaredGLMM) 
+r2 <- do.call(rbind.data.frame, r2)
+confint <- lapply(output_models_mean_relAb, confint) 
+confint_wald <- lapply(output_models_mean_relAb, Wald_fct)
+
+write.table(r2, file = "r2_mean_relAb_L6_HFiD_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint, file = "confint_likelihood_mean_relAb_L6_HFiD_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+write.table(confint_wald, file = "confint_Waald_mean_relAb_L6_HFiD_TRF.txt", sep = "\t", col.names = TRUE, row.names = T)
+```
+
+
+###2.4  Heatmap 
+```{r}
+emmeans_filt <- filter(output_emmeans_ht, contrast == ".") 
+```
+
+
+```{r}
+output_emmeans_ht <- NULL
+
+# if CI intervals and EMMs for fixed effects are wanted, needed for heatmap
+for (taxon in all_taxa) {
+  emm <-
+    emmeans(output_models_mean_relAb[[taxon]],
+            specs = pairwise ~ diet) %>%
+    as.data.frame() %>%
+    mutate(taxon_name = taxon)
+  output_emmeans_ht <- bind_rows(output_emmeans_ht, emm)
+}
+```
+
+```{r}
+taxa_list_relAb <- c(
+  "f_Muribaculaceae;g_uncultured Bacteroidales bacterium",
+  "f_Muribaculaceae;g_uncultured bacterium",
+  "f_Muribaculaceae",
+  "g_Alloprevotella",
+  "g_Prevotellaceae UCG-001",
+  "g_Rikenellaceae RC9 gut group",
+  "g_Parabacteroides",
+  "g_Mucispirillum",
+  "g_Lactobacillus",
+  "g_Streptococcus",
+  "f_Christensenellaceae;g_uncultured bacterium",
+  "g_Clostridium sensu stricto 1",
+  "f_Clostridiales vadinBB60 group;g_uncultured bacterium",
+  "g_Defluviitaleaceae UCG-011",
+  "g_[Eubacterium] nodatum group",
+  "f_Lachnospiraceae;g_A2",
+  "f_Lachnospiraceae;g_ASF356",
+  "g_Acetatifactor",
+  "g_Blautia",
+  "f_Lachnospiraceae;g_GCA-900066575",
+  "g_Lachnospiraceae NK4A136 group",
+  "g_Lachnospiraceae UCG-001",
+  "g_Lachnospiraceae UCG-006",
+  "g_Marvinbryantia",
+  "g_Roseburia",
+  "g_Tyzzerella",
+  "g_Tyzzerella 3",
+  "g_[Eubacterium] xylanophilum group",
+  "f_Lachnospiraceae;g_uncultured",
+  "f_Lachnospiraceae",
+  "g_Romboutsia",
+  "f_Peptostreptococcaceae",
+  "g_Angelakisella",
+  "g_Butyricicoccus",
+  "g_Candidatus Soleaferrea",
+  "f_Ruminococcaceae;g_GCA-900066225",
+  "g_Oscillibacter",
+  "g_Ruminiclostridium",
+  "g_Ruminiclostridium 6",
+  "g_Ruminiclostridium 9",
+  "g_Ruminococcaceae UCG-004",
+  "g_Ruminococcaceae UCG-005",
+  "g_Ruminococcaceae UCG-010",
+  "g_Ruminococcaceae UCG-013",
+  "g_Ruminococcaceae UCG-014",
+  "g_Ruminococcus 1",
+  "f_Ruminococcaceae;g_UBA1819",
+  "g_[Eubacterium] coprostanoligenes group",
+  "f_Ruminococcaceae;g_uncultured",
+  "f_Ruminococcaceae",
+  "o_Clostridiales",
+  "g_Candidatus Stoquefichus",
+  "g_Dubosiella",
+  "g_Faecalibaculum",
+  "g_Turicibacter",
+  "f_Erysipelotrichaceae;g_uncultured",
+  "g_Candidatus Saccharimonas",
+  "g_Azospirillum sp. 47_25",
+  "g_Desulfovibrio",
+  "f_Desulfovibrionaceae;g_uncultured",
+  "g_Anaeroplasma",
+  "o_Mollicutes RF39;f_uncultured bacterium;g_uncultured bacterium",
+  "o_Mollicutes RF39"
+)
+  
+
+emmeans_filt_relAb <- emmeans_filt %>% filter(taxon_name %in% taxa_list_relAb)
+```
+
+
+```{r}
+df_filt_trf_hfi <- 
+  emmeans_filt_relAb %>% 
+  dplyr::select(diet, emmean, taxon_name) %>% 
+  pivot_wider(names_from = c('diet'), values_from = 'emmean') %>%  
+  dplyr::select("taxon_name", "control_diet_study", "control_TRF_study", "high_fiber_diet_study", "TRF_TRF_study") %>% 
+  column_to_rownames('taxon_name') %>% 
+  t(.) %>% 
+  as.data.frame(.) %>% 
+  scale(., scale = T, center = T) %>% 
+  t(.)
+
+
+# create heatmap
+pdf("GLMM_hfi_trf_control_diet_L6.pdf", width = 16, height=22)
+Heatmap(df_filt_trf_hfi,
+                      cluster_column_slices = FALSE,
+                      cluster_columns = FALSE,
+                      column_names_rot = FALSE,
+                      column_names_centered = TRUE,
+                      name = "emmeans",
+                      column_gap = unit(4, "mm"),
+                      row_names_gp = grid::gpar(fontsize = 16),
+                      column_names_gp = grid::gpar(fontsize = 16),
+                      width = ncol(df_filt_trf_hfi) * unit(26, "mm"),
+                      height = nrow(df_filt_trf_hfi) * unit(8, "mm"),
+                      show_heatmap_legend = FALSE,
+                      heatmap_legend_param = list(legend_gp = gpar(fontsize = 16))
+)
+dev.off()
+```
+
+
