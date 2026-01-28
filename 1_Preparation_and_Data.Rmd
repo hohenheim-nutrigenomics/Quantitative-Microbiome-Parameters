@@ -350,7 +350,7 @@ L6_relAb_Diet <- sweep(L6_count_Diet, 1, rowSums(L6_count_Diet),'/') # input fro
 
 # merge with metadata
 L6_relAb_Diet <- L6_relAb_Diet %>% rownames_to_column("sampleID")
-meta_L6_relAb_Diet <- merge(metadata_QP_interval, L6_relAb_Diet, by = "sampleID") # = input for per interval GLMMs (Suppl. Figure GLMMs)
+meta_L6_relAb_Diet <- metadata_QP_interval %>% filter(project == "diet_study") %>% left_join(L6_relAb_Diet, by = "sampleID") # = input for per interval GLMMs (Suppl. Figure GLMMs)
 ```
 
 **TRF**
@@ -359,7 +359,7 @@ L6_relAb_TRF <- sweep(L6_count_TRF, 1, rowSums(L6_count_TRF),'/') # input from S
 
 # merged with metadata 
 L6_relAb_TRF <- L6_relAb_TRF %>% rownames_to_column("sampleID")
-meta_L6_relAb_TRF <- merge(metadata_QP_interval, L6_relAb_TRF, by = "sampleID") # input for per interval GLMMs (Suppl. Figure GLMMs)
+meta_L6_relAb_TRF <- metadata_QP_interval %>% filter(project == "TRF_study") %>% left_join(L6_relAb_TRF, by = "sampleID") # input for per interval GLMMs (Suppl. Figure GLMMs)
 ```
 
 **combined L6**
@@ -368,7 +368,7 @@ L6_relAb_combined <- sweep(L6_count_combined, 1, rowSums(L6_count_combined),'/')
 
 # merged with metadata
 L6_relAb_combined <- L6_relAb_combined %>% rownames_to_column("sampleID")
-meta_L6_relAb_combined <- merge(metadata_QP_interval, L6_relAb_combined, by = "sampleID") 
+meta_L6_relAb_combined <- left_join(metadata_QP_interval, L6_relAb_combined, by = "sampleID") 
 ```
 
 **combined L2**
@@ -377,7 +377,7 @@ L2_relAb_combined <- sweep(L2_count_combined, 1, rowSums(L2_count_combined),'/')
 
 # merged with metadata
 L2_relAb_combined <- L2_relAb_combined %>% rownames_to_column("sampleID")
-meta_L2_relAb_combined <- merge(metadata_QP_interval, L2_relAb_combined, by = "sampleID") 
+meta_L2_relAb_combined <- left_join(metadata_QP_interval, L2_relAb_combined, by = "sampleID")  
 ```
 
 
@@ -390,7 +390,7 @@ for Figure 1 Shannon and PCoA
 merge metadata and ASV count
 ```{r}
 ASV_count_Diet <- ASV_count_Diet %>% rownames_to_column("sampleID")
-meta_ASV_Diet <- merge(metadata_QP_interval, ASV_count_Diet, by = "sampleID")  
+meta_ASV_Diet <- metadata_QP_interval %>% filter(project == "diet_study") %>% left_join(ASV_count_Diet, by = "sampleID")  
 ```
 
 
@@ -455,7 +455,7 @@ for Figure 2, Supplement Shannon and PCoA
 merge metadata and ASV count
 ```{r}
 ASV_count_TRF <- ASV_count_TRF %>% rownames_to_column("sampleID")
-meta_ASV_TRF <- merge(metadata_QP_interval, ASV_count_TRF, by = "sampleID")  
+meta_ASV_TRF <- metadata_QP_interval %>% filter(project == "TRF_study") %>% left_join(ASV_count_TRF, by = "sampleID")    
 ```
 
 function for aggregation (QMPs and ASVs at once) as above
@@ -490,7 +490,7 @@ for Figure 6
 merge metadata and ASV count
 ```{r}
 ASV_count_combined <- ASV_count_combined %>% rownames_to_column("sampleID")
-meta_ASV_combined <- merge(metadata_QP_interval, ASV_count_combined, by = "sampleID")  
+meta_ASV_combined <- left_join(metadata_QP_interval, ASV_count_combined, by = "sampleID")  
 ```
 
 
