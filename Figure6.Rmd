@@ -1,0 +1,745 @@
+---
+title: "Figure 6"
+output: html_document
+date: "2026-01-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Figure 6A - PCoA Plot diet & TRF study 
+
+## 1. Prepare data
+```{r}
+ASV_QP_interval <- rownames_to_column(ASV_count_combined, var = "sampleID")
+
+ASV_meta_interval <- right_join(ASV_QP_interval, metadata_QP_interval) %>%
+  tidyr::drop_na()
+
+ASV_meta_interval <- filter(ASV_meta_interval, (project == "diet_study") |  (project == "TRF_study"))
+
+ASV_interval_for_mean <- ASV_meta_interval[, -c(11295:11311)]
+```
+
+```{r}
+ASV_mean <- ASV_interval_for_mean %>%
+  group_by(mouse) %>%    
+  summarise(across(-sampleID, mean))
+
+ASV_mean <- ASV_mean %>%
+  column_to_rownames("mouse")
+```
+
+```{r}
+metadata_PCoA <- metadata_QP_passage %>%
+  mutate(diet_project = paste(diet, project, sep = "_"))
+
+metadata_PCoA <- metadata_PCoA %>%
+  mutate(diet_project_genotype = paste(diet_project, genotype_group, sep = "_"))
+
+#metadata_diet_WP3 <- metadata_diet_WP3 %>%
+#  rownames_to_column("SampleID")
+```
+
+## 2. Calculate Bray-Curtis Dissimilarity
+```{r}
+ASV_mean <- as.matrix(ASV_mean)
+
+ASV_relab<- sweep(ASV_mean, 1, rowSums(ASV_mean),'/')
+dim(ASV_relab)
+
+ASV_relab <- as.data.frame(ASV_relab)
+
+ASV_relab_filt <- ASV_relab %>%
+  rownames_to_column("mouse") %>%
+  filter(mouse %in% metadata_PCoA$mouse) %>%
+  column_to_rownames("mouse")
+
+## calculate Bray-Curtis Dissimilarity
+d.bray <-vegdist(ASV_relab_filt, na.rm = T, method = "bray")
+matrix.bray_ANOSIM <- as.matrix(d.bray)
+```
+
+## 3. Visualization
+```{r}
+# calculate PCoA values based on Bray-Curtis Dissimilarity
+pcoa.bray <- cmdscale(d.bray, k=2, eig = TRUE)
+
+# Generate percentages % for plot axis
+explainvar1 <- round(pcoa.bray$eig[1]/sum(pcoa.bray$eig), 3)*100
+explainvar2 <- round(pcoa.bray$eig[2]/sum(pcoa.bray$eig), 3)*100
+
+pcoa_map <- merge(metadata_PCoA, pcoa.bray$points, by.x = "mouse", by.y = 0)
+
+
+pcoa_map$diet_project_genotype <- factor(pcoa_map$diet_project_genotype, levels = c("control_diet_study_WT", "fasting_diet_study_WT", "high_fat_diet_study_WT", "high_fiber_diet_study_WT", "control_TRF_study_WT", "TRF_TRF_study_WT", "control_TRF_study_IL10-/-", "TRF_TRF_study_IL10-/-"))
+
+pdf("PCoA_both_projects_mean.pdf", width = 8, height=6)
+ggplot(pcoa_map, aes(V1, V2, colour= diet_project_genotype, shape = project))+
+  geom_point(size=4)+
+  xlab(paste("PCoA 1 (" ,explainvar1, "%)", sep = "")) +
+  ylab(paste("PCoA 2 (" ,explainvar2, "%)", sep = "")) +
+  scale_fill_manual(
+    values = c("#85C1E9", "#AF7AC5", "#F39C12", "#52BE80", "#3498DB", "#2471A3", "#E74C3C", "#A93226"),
+    labels = c("control_diet_study_WT" = "Control", "fasting_diet_study_WT" = "Fasting", "high_fat_diet_study_WT" = "High Fat", "high_fiber_diet_study_WT" = "High Fiber", "control_TRF_study_WT" = "WT ad libitum", "TRF_TRF_study_WT" = "WT TRF", "control_TRF_study_IL10-/-" = expression("IL-10"^"-/-"~"ad libitum"), "TRF_TRF_study_IL10-/-" = expression("IL-10"^"-/-"~"TRF")),
+                     name = "") +
+  scale_color_manual(
+    values = c("#85C1E9", "#AF7AC5", "#F39C12", "#52BE80", "#3498DB", "#2471A3", "#E74C3C", "#A93226"),
+      labels = c("control_diet_study_WT" = "Control", "fasting_diet_study_WT" = "Fasting", "high_fat_diet_study_WT" = "High Fat", "high_fiber_diet_study_WT" = "High Fiber", "control_TRF_study_WT" = "WT ad libitum", "TRF_TRF_study_WT" = "WT TRF", "control_TRF_study_IL10-/-" = expression("IL-10"^"-/-"~"ad libitum"), "TRF_TRF_study_IL10-/-" = expression("IL-10"^"-/-"~"TRF")),
+                     name = "") +
+  scale_shape_manual(
+    values = c(16, 17), 
+    labels = c("TRF_study" = "TRF study", "diet_study" = "diet study"),
+    name = ""
+  ) +
+  Settings_PCoA 
+dev.off()
+
+```
+
+##4.  Statistical testing
+diet
+```{r}
+order_anosim <- rownames(matrix.bray_ANOSIM)
+metadata_PCoA <- metadata_PCoA[match(order_anosim, metadata_PCoA$mouse), ]
+
+## perform ANOSIM 
+anosim(matrix.bray_ANOSIM, grouping = metadata_PCoA$diet, permutations = 999)
+```
+
+project
+```{r}
+order_anosim <- rownames(matrix.bray_ANOSIM)
+metadata_PCoA <- metadata_PCoA[match(order_anosim, metadata_PCoA$mouse), ]
+
+## perform ANOSIM 
+anosim(matrix.bray_ANOSIM, grouping = metadata_PCoA$project, permutations = 999)
+```
+
+# Figure 6B - dbRDA diet & TRF study 
+
+## 1. Preparation
+
+Load and prepare data 
+```{r}
+
+meta_L6_dbRDA <- meta_mean_L6_relAb_combined %>% 
+  filter((project == "diet_study" | project == "TRF_study")) %>% 
+  dplyr::select(-mouse, -passage_cycle, -ZT, -clock_group, -disrupted_clock) %>%  
+  
+  # genotype variables
+  mutate(genotype_all = case_when(
+    genotype == "black6" ~ "WT_Diet",
+    (genotype == "BALBc" & genotype_group == "WT") ~ "WT_TRF",
+    genotype_group == "IL10-/-" ~ "IL10-/-",
+    TRUE ~ NA_character_)) %>% 
+  mutate(genotype_2 = genotype_group) %>% 
+  
+  # diet and feeding type variables 
+  mutate(diet_type = case_when(
+    (diet == "control" | diet == "TRF" | diet == "fasting") ~ "regular_chow", # TRF and fasting also need to be classified as regular chow
+    diet == "high_fat" ~ "high_fat",
+    diet == "high_fiber" ~ "high_fiber",
+    TRUE ~ NA_character_)) %>% 
+  mutate(feeding_type = case_when(
+    (diet == "control" | diet == "high_fat" | diet == "high_fiber") ~ "ad_libitum", # same here for high fat and high fiber, need to be classified as ad libitum
+    diet == "TRF" ~ "TRF", 
+    diet == "fasting" ~"fasting", 
+    TRUE ~ NA_character_)) %>% 
+  
+  # de-select 
+  dplyr::select(-genotype_group, -genotype, -diet, -colitis) %>% 
+  relocate(c(genotype_all, genotype_2, diet_type, feeding_type), .after = "project") 
+
+# in this set-up, the variable feeding_type also contains the high fat and high fiber diets as controls since they are also ad libitum -> universally applicable variables
+
+```
+
+
+Calculate Bray Curtis Dissimilarity
+```{r}
+# subset (make sure sampleIDs are rownames)
+meta_L6_dbRDA <- meta_L6_dbRDA %>% column_to_rownames("sampleID")
+meta_dbRDA <- meta_L6_dbRDA[1:11] # metadata columns 
+L6_relAb_dbRDA <- meta_L6_dbRDA[12:177] # taxa columns 
+
+# factor levels
+meta_dbRDA[1:7] <- lapply(meta_dbRDA[1:7], as.factor)
+# log10 transform QMPs
+meta_dbRDA[8:11] <- log10(meta_dbRDA[8:11])
+
+# BC
+L6_bray_dbRDA <- vegdist(L6_relAb_dbRDA, method = "bray", na.rm = T) # matrix 97x97
+L6_bray_mx_dbRDA <- as.matrix(L6_bray_dbRDA)
+```
+
+
+## 2. dbRDA model
+
+assess explanatory of each possible variable separately 
+
+```{r}
+# Initialize results & model storage
+ind_dbRDA_all <- data.frame()
+models <- list()
+
+# Loop through metadata variables
+for (ii in 1:ncol(meta_dbRDA)) {  
+  dbrda <- dbrda(L6_bray_dbRDA ~ meta_dbRDA[, ii], distance = "bray", na.action = na.omit)  # Fit each metadata variable to the BC matrix
+  an <- anova.cca(dbrda, permutations = 9999)  # ANOVA on constrained ordination
+  pval <- an["Pr(>F)"][[1]][[1]]  # Extract p-value
+  R2adj <- RsquareAdj(dbrda)[[2]]  # Extract adjusted R²
+  ind_dbRDA_all <- rbind(ind_dbRDA_all, cbind(R2adj, pval))  # Store results
+  models[[colnames(meta_dbRDA)[ii]]] <- dbrda # Save models 
+}
+
+# but add variable names & significance levels
+ind_dbRDA_all <- ind_dbRDA_all %>% mutate(variable = colnames(meta_dbRDA)) %>% relocate(variable, .before = R2adj) %>% 
+  mutate(padj = p.adjust(pval, method = "BH")) %>% add_significance("padj")   
+
+# add category for plotting with ifelse based on variable_colors below
+ind_dbRDA_all <- ind_dbRDA_all %>% 
+  mutate(category = case_when(
+    variable %in% c("diet_type", "feeding_type") ~ "Diet/Feeding",
+    variable %in% c("genotype_all", "genotype_2") ~ "Genotype",
+    variable %in% c("Fecal_Mass", "Microbial_Load", "Microbiota_Excretion", "Transit_Time") ~ "QMP",
+    variable %in% c("cage", "litter", "project") ~ "Experimental",
+    TRUE ~ "other"
+  ))
+
+# order for plot
+ind_dbRDA_all <- ind_dbRDA_all[order(ind_dbRDA_all$R2adj, decreasing = F),]
+ind_dbRDA_all$variable <- factor(ind_dbRDA_all$variable, levels = ind_dbRDA_all$variable)
+print(ind_dbRDA_all) 
+
+```
+
+
+## 3. Plot
+
+Barplot
+```{r}
+
+variable_colors <- c("Diet/Feeding" = "#7690a0", "Experimental" = "#92ab93", "Genotype" = "#e5e1d9", "QMP" = "#a38e8e")
+
+# plot with custom colors
+pdf("dbRDA_barplot_all_variables.pdf", width = 18, height = 10)
+
+ggplot(ind_dbRDA_all, aes(x = variable, y = R2adj, fill = category)) +
+  geom_bar(stat = "identity", position = position_dodge2(), alpha = 0.8) +
+  geom_text(aes(label = padj.signif), position = position_dodge(width = .9), hjust = -0.5, size = 8) +
+  scale_fill_manual(values = variable_colors, name = "Categories") + 
+  scale_x_discrete(labels = c("cage" = "Cage", "litter" = "Litter", "genotype_all" = expression("Mouse Strain"), "project" = "Mouse Study", "feeding_type" = "Feeding Type", "Fecal_Mass" = "Fecal Mass", 
+                              "diet_type" = "Diet Type", "Microbial_Load" = "Microbial Load", "Transit_Time" = "GI Transit Time", "genotype_2" = expression("Genotype (WT, IL-10"^"-/-" * ")"), 
+                              "Microbiota_Excretion" = "Microbiota Excretion")) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  coord_cartesian(ylim = c(0, 1)) +
+  Settings_barplot + theme(plot.title = element_text(face = "bold", size = 25), legend.position = "right") +
+  labs(title = "Individual Effects on Relative Microbiota Composition", y = expression("Explained Variance (Adj. R"^"2" * ")"), x = "Variables") +
+  coord_flip()  # Flip for better readability
+
+dev.off()
+
+```
+
+
+
+# Figure 6C - dbRDA diet & TRF study controlled for project
+
+## 1. Preparation
+
+as in Figure 6B, 1. Preparation
+
+## 2. dbRDA model
+```{r}
+# Initialize output
+ind_dbRDA_all_project <- data.frame()
+models <- list()
+
+# All variables EXCEPT project
+
+vars_all <- setdiff(colnames(meta_dbRDA), "project")
+
+# Loop
+for (var in vars_all) {
+  form <- as.formula(paste0("L6_bray_dbRDA ~ ", var, " + Condition(project)"))
+  dbrda <- dbrda(form, data = meta_dbRDA, distance = "bray", na.action = na.omit)
+  an <- anova.cca(dbrda, permutations = 9999)
+  pval <- an["Pr(>F)"][[1]][[1]]
+  R2adj <- RsquareAdj(dbrda)[[2]]
+  
+  ind_dbRDA_all_project <- rbind(ind_dbRDA_all_project, cbind(R2adj, pval))
+  models[[var]] <- dbrda
+}
+
+# Add annotations
+ind_dbRDA_all_project <- ind_dbRDA_all_project %>%
+  mutate(variable = vars_all) %>%
+  relocate(variable, .before = R2adj) %>%
+  mutate(padj = p.adjust(pval, method = "BH")) %>%
+  add_significance("padj")
+
+
+# add category for plotting with ifelse based on variable_colors below
+ind_dbRDA_all_project <- ind_dbRDA_all_project %>% 
+  mutate(category = case_when(
+    variable %in% c("diet_type", "feeding_type") ~ "Diet/Feeding",
+    variable %in% c("genotype_all", "genotype_2") ~ "Genotype",
+    variable %in% c("Fecal_Mass", "Microbial_Load", "Microbiota_Excretion", "Transit_Time") ~ "QMP",
+    variable %in% c("cage", "litter") ~ "Experimental",
+    TRUE ~ "other"
+  ))
+
+# order for plot
+ind_dbRDA_all_project <- ind_dbRDA_all_project[order(ind_dbRDA_all_project$R2adj, decreasing = F),]
+ind_dbRDA_all_project$variable <- factor(ind_dbRDA_all_project$variable, levels = ind_dbRDA_all_project$variable)
+print(ind_dbRDA_all_project)
+
+```
+
+
+## 3. Plots
+
+Barplot - all variables, controlled for project = *Suppl. Figure XX*
+```{r}
+variable_colors <- c("Diet/Feeding" = "#7690a0", "Experimental" = "#92ab93", "Genotype" = "#e5e1d9", "QMP" = "#a38e8e")
+
+pdf("dbRDA_barplot_all_variables_project.pdf", width = 18, height = 10)
+
+ggplot(ind_dbRDA_all_new_project, aes(x = variable, y = R2adj, fill = category)) +
+  geom_bar(stat = "identity", position = position_dodge2(), alpha = 0.8) +
+  geom_text(aes(label = padj.signif), position = position_dodge(width = .9), hjust = -0.5, size = 8) +
+  scale_fill_manual(values = variable_colors, name = "Categories") + 
+  scale_x_discrete(labels = c("cage" = "Cage", "litter" = "Litter", "genotype_all" = expression("Mouse Strain"), "project" = "Mouse Study", "feeding_type" = "Feeding Type", "stool_cycle" = "Fecal Mass", 
+                              "diet_type" = "Diet Type", "density_new" = "Microbial Load", "passage_transit" = "GI Transit Time", "genotype_2" = expression("Genotype (WT, IL-10"^"-/-" * ")"), 
+                              "GCN_cycle" = "Microbiota Excretion")) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  coord_cartesian(ylim = c(0, 1)) +
+  Settings_barplot + theme(plot.title = element_text(face = "bold", size = 25), plot.subtitle = element_text(size = 22, hjust = 0.5), legend.position = "right") +
+  labs(title = "Individual Effects on Relative Microbiota Composition", subtitle = "Controlled for Mouse Study", y = expression("Explained Variance (Adj. R"^"2" * ")"), x = "Variables") +
+  coord_flip()  # Flip for better readability
+
+dev.off()
+```
+
+
+Barplot - subset plot with only QMP variables 
+```{r}
+variable_colors <- c("Diet/Feeding" = "#7690a0", "Experimental" = "#92ab93", "Genotype" = "#e5e1d9", "QMP" = "#a38e8e")
+
+
+pdf("dbRDA_barplot_QMP_project.pdf", width = 10, height = 6)
+
+ggplot(ind_dbRDA_all_new_project %>% filter(category == "QMP"), aes(x = variable, y = R2adj, fill = category)) +
+  geom_bar(stat = "identity", position = position_dodge2(), alpha = 0.8) +
+  geom_text(aes(label = padj.signif), position = position_dodge(width = .9), hjust = -0.5, size = 8) +
+  scale_fill_manual(values = variable_colors, name = "Categories") + 
+    scale_x_discrete(labels = c("stool_cycle" = "Fecal Mass", "density_new" = "Microbial Load", "passage_transit" = "GI Transit Time", "GCN_cycle" = "Microbiota Excretion")) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  coord_cartesian(ylim = c(0, 1)) +
+  Settings_barplot + theme(plot.title = element_text(face = "bold", size = 25), plot.subtitle = element_text(size = 22, hjust = 0.5), legend.position = "none") +
+  labs(title = "Individual Effects on Relative Microbiota Composition", subtitle = "QMP variables only, controlled for Mouse Study", y = expression("Explained Variance (Adj. R"^"2" * ")"), x = "Variables") +
+  coord_flip()  # Flip for better readability
+
+dev.off()
+
+```
+
+
+
+# Figure 6D - QMP - Taxa Correlation
+
+##1. Preparation
+
+```{r}
+L6_diet_trf <- filter(meta_mean_L6_relAb_combined, project == "diet_study" | project == "TRF_study" & genotype_group == "WT")
+```
+
+```{r}
+vars_to_normalize <- c(
+  "Fecal_Mass",
+  "Microbiota_Excretion",
+  "Microbial_Load",
+  "Transit_Time",
+  grep("^g_|^f_|^o_|^c_|^p_|^k_", names(L6_diet_trf), value = TRUE)
+)
+
+QMPs_taxa_fold <- L6_diet_trf %>%
+  group_by(project) %>%
+  mutate(across(
+    all_of(vars_to_normalize),
+    ~ .x / mean(.x[diet == "control"], na.rm = TRUE)
+  )) %>%
+  ungroup()
+
+QMPs_taxa_fold <- QMPs_taxa_fold %>%
+  select(where(~ !all(is.na(.))))
+```
+
+##2. Corrleations
+
+### 2.1  Microbiota Excretion [16S rRNA GCN per GI Passage]
+Stats
+```{r}
+L6_corr_excr_filt_WT <- data.frame()
+
+for (i in taxa_to_keep) {
+
+    tryCatch({
+
+        non_zero_data <- QMPs_taxa_fold[QMPs_taxa_fold[[i]] > 0 & !is.na(QMPs_taxa_fold[[i]]), ]
+        num_points <- nrow(non_zero_data)
+
+        if (num_points >= 10) {
+
+            x <- non_zero_data[[i]]
+            y <- non_zero_data$Microbiota_Excretion
+
+            tmp_corr_spearman <- cor.test(x, y, method = "spearman", exact = FALSE)
+
+            L6_corr_excr_filt_WT <- rbind(
+                L6_corr_excr_filt_WT,
+                data.frame(
+                    taxa = i,
+                    Rho = tmp_corr_spearman$estimate,
+                    P_value = tmp_corr_spearman$p.value,
+                    n_points = num_points
+                )
+            )
+
+        } else {
+
+            L6_corr_excr_filt_WT <- rbind(
+                L6_corr_excr_filt_WT,
+                data.frame(
+                    taxa = i,
+                    Rho = NA,
+                    P_value = NA,
+                    n_points = num_points
+                )
+            )
+        }
+
+    }, error = function(e) return(NA))
+
+}
+
+
+L6_corr_excr_filt_WT$P_adjusted <- p.adjust(L6_corr_excr_filt_WT$P_value, method = "BH")
+
+L6_corr_excr_filt_WT <- L6_corr_excr_filt_WT %>%
+  mutate(Sign. = case_when(
+    P_adjusted >= 0.05 ~ "ns",
+    P_adjusted < 0.05 & P_adjusted >= 0.01 ~ "*",
+    P_adjusted < 0.01 & P_adjusted >= 0.001 ~ "**",
+    P_adjusted < 0.001 & P_adjusted >= 0.0001 ~ "***",
+    P_adjusted < 0.0001 ~ "****"
+  ))
+
+L6_corr_excr_filt_WT[,"Quantitative_Parameter"] <- "Microbiota Excretion [16s GCN/GI Passage]"
+L6_corr_excr_filt_WT <- L6_corr_excr_filt_WT %>% relocate("Quantitative_Parameter") %>% relocate("n_points", .after = taxa)
+row.names(L6_corr_excr_filt_WT) <- NULL
+
+
+```
+
+### 2.2 Microbial Load [16S rRNA GCN/ g stool]
+Stats
+```{r}
+L6_corr_load_filt_WT <- data.frame()
+
+for (i in unique(taxa_to_keep)) {
+
+    tryCatch({
+        non_zero_data <- QMPs_taxa_fold[QMPs_taxa_fold[[i]] > 0 & !is.na(QMPs_taxa_fold[[i]]), ]
+        num_points <- nrow(non_zero_data)
+
+        if (num_points >= 10) {
+
+            x <- non_zero_data[[i]]
+            y <- non_zero_data$Microbial_Load
+
+            tmp_corr_spearman <- cor.test(x, y, method = "spearman", exact = FALSE)
+
+            L6_corr_load_filt_WT <- rbind(
+                L6_corr_load_filt_WT,
+                data.frame(
+                    taxa = i,
+                    Rho = tmp_corr_spearman$estimate,
+                    P_value = tmp_corr_spearman$p.value,
+                    n_points = num_points
+                )
+            )
+
+        } else {
+
+            L6_corr_load_filt_WT <- rbind(
+                L6_corr_load_filt_WT,
+                data.frame(
+                    taxa = i,
+                    Rho = NA,
+                    P_value = NA,
+                    n_points = num_points
+                )
+            )
+        }
+
+    }, error = function(e) return(NA))
+
+}
+
+L6_corr_load_filt_WT$P_adjusted <- p.adjust(L6_corr_load_filt_WT$P_value, method = "BH")
+
+L6_corr_load_filt_WT <- L6_corr_load_filt_WT %>%
+  mutate(Sign. = case_when(
+    P_adjusted >= 0.05 ~ "ns",
+    P_adjusted < 0.05 & P_adjusted >= 0.01 ~ "*",
+    P_adjusted < 0.01 & P_adjusted >= 0.001 ~ "**",
+    P_adjusted < 0.001 & P_adjusted >= 0.0001 ~ "***",
+    P_adjusted < 0.0001 ~ "****"
+  ))
+
+L6_corr_load_filt_WT$Quantitative_Parameter <- "Microbial Load [16s GCN/g stool]"
+
+L6_corr_load_filt_WT <- L6_corr_load_filt_WT %>%
+  relocate(Quantitative_Parameter) %>%
+  relocate(n_points, .after = taxa)
+
+row.names(L6_corr_load_filt_WT) <- NULL
+
+
+```
+
+### 2.3. Fecal Mass (g)
+Stats
+```{r}
+L6_corr_stool_filt_WT <- data.frame()
+
+for (i in unique(taxa_to_keep)) {
+    tryCatch({
+
+        # Remove NA and 0
+        non_zero_data <- QMPs_taxa_fold[QMPs_taxa_fold[[i]] > 0 & !is.na(QMPs_taxa_fold[[i]]), ]
+        num_points <- nrow(non_zero_data)
+        
+        if (num_points >= 10) {
+
+            x <- non_zero_data[[i]]
+            y <- non_zero_data$Fecal_Mass
+            
+            tmp_corr_spearman <- cor.test(x, y, method = "spearman", exact = FALSE)
+            
+            L6_corr_stool_filt_WT <- rbind(
+                L6_corr_stool_filt_WT, 
+                data.frame(
+                    taxa = i,
+                    Rho = tmp_corr_spearman$estimate,
+                    P_value = tmp_corr_spearman$p.value,
+                    n_points = num_points
+                )
+            )
+
+        } else {
+
+            L6_corr_stool_filt_WT <- rbind(
+                L6_corr_stool_filt_WT, 
+                data.frame(
+                    taxa = i,
+                    Rho = NA,
+                    P_value = NA,
+                    n_points = num_points
+                )
+            )
+        }
+
+    }, error = function(e) return(NA))
+}
+
+# FDR correction
+L6_corr_stool_filt_WT$P_adjusted <- p.adjust(L6_corr_stool_filt_WT$P_value, method = "BH")
+
+# Significance labels
+L6_corr_stool_filt_WT <- L6_corr_stool_filt_WT %>%
+  mutate(Sign. = case_when(
+    P_adjusted >= 0.05 ~ "ns",
+    P_adjusted < 0.05 & P_adjusted >= 0.01 ~ "*",
+    P_adjusted < 0.01 & P_adjusted >= 0.001 ~ "**",
+    P_adjusted < 0.001 & P_adjusted >= 0.0001 ~ "***",
+    P_adjusted < 0.0001 ~ "****"
+  ))
+
+# Add parameter label and reorder columns
+L6_corr_stool_filt_WT$Quantitative_Parameter <- "Fecal Mass [g]"
+
+L6_corr_stool_filt_WT <- L6_corr_stool_filt_WT %>%
+  relocate(Quantitative_Parameter) %>%
+  relocate(n_points, .after = taxa)
+
+row.names(L6_corr_stool_filt_WT) <- NULL
+
+
+```
+
+### 2.4. GI Transit Time (min)
+Stats
+```{r}
+L6_corr_time_filt_WT <- data.frame()
+
+for (i in unique(taxa_to_keep)) {
+    tryCatch({
+        
+        non_zero_data <- QMPs_taxa_fold[QMPs_taxa_fold[[i]] > 0 & !is.na(QMPs_taxa_fold[[i]]), ]
+        num_points <- nrow(non_zero_data)
+        
+        if (num_points >= 10) {  
+            
+            x <- non_zero_data[[i]]
+            y <- non_zero_data$Transit_Time
+            
+            tmp_corr_spearman <- cor.test(x, y, method = "spearman", exact = FALSE)
+            
+            L6_corr_time_filt_WT <- rbind(
+                L6_corr_time_filt_WT, 
+                data.frame(
+                    taxa = i,
+                    Rho = tmp_corr_spearman$estimate,
+                    P_value = tmp_corr_spearman$p.value,
+                    n_points = num_points
+                )
+            )
+            
+        } else {
+            
+            L6_corr_time_filt_WT <- rbind(
+                L6_corr_time_filt_WT, 
+                data.frame(
+                    taxa = i,
+                    Rho = NA,
+                    P_value = NA,
+                    n_points = num_points
+                )
+            )
+        }
+        
+    }, error = function(e) return(NA))
+}
+L6_corr_time_filt_WT$P_adjusted <- p.adjust(L6_corr_time_filt_WT$P_value, method = "BH")
+
+L6_corr_time_filt_WT <- L6_corr_time_filt_WT %>% mutate(
+    Sign. = case_when(
+        P_adjusted >= 0.05 ~ "ns",
+        P_adjusted < 0.05 & P_adjusted >= 0.01 ~ "*",
+        P_adjusted < 0.01 & P_adjusted >= 0.001 ~ "**",
+        P_adjusted < 0.001 & P_adjusted >= 0.0001 ~ "***",
+        P_adjusted < 0.0001 ~ "****"
+    )
+)
+
+L6_corr_time_filt_WT$Quantitative_Parameter <- "GI Transit Time [min]"
+
+L6_corr_time_filt_WT <- L6_corr_time_filt_WT %>%
+    relocate(Quantitative_Parameter) %>%
+    relocate(n_points, .after = taxa)
+
+row.names(L6_corr_time_filt_WT) <- NULL
+```
+
+
+## 3. Overview Plot Coefficients
+
+```{r}
+combined_df_WT <- bind_rows(
+  L6_corr_time_filt_WT,
+  L6_corr_stool_filt_WT,
+  L6_corr_excr_filt_WT,
+  L6_corr_load_filt_WT
+) %>%
+  mutate(QMP = case_when(
+    Quantitative_Parameter == "GI Transit Time [min]" ~ "Transit_Time",
+    Quantitative_Parameter == "Fecal Mass [g]" ~ "Fecal_Mass",
+    Quantitative_Parameter == "Microbiota Excretion [16s GCN/GI Passage]" ~ "Microbiota_Excretion",
+    Quantitative_Parameter == "Microbial Load [16s GCN/g stool]" ~ "Microbial_Load"
+  ))
+
+
+combined_df_WT$Rho <- as.numeric(combined_df_WT$Rho)
+
+combined_df_WT$Significance <- ifelse(combined_df_WT$Sign. != "ns", TRUE, FALSE)
+
+combined_df_WT <- combined_df_WT %>%
+  arrange(taxa)
+```
+
+safe corr. results
+```{r}
+write.table(combined_df_WT, "Rel_abundanca_taxa_qmps_correlations_fold.txt", 
+            row.names = FALSE, 
+            sep = "\t", 
+            quote = FALSE)
+```
+
+```{r}
+significant_taxa_WT <- combined_df_WT %>%
+  filter(Sign. != "ns") %>%
+  pull(taxa) %>%
+  unique()
+
+combined_df_sig_WT <- combined_df_WT %>%
+  filter(taxa %in% significant_taxa_WT)
+```
+
+```{r}
+qmp_colors <- c(
+  "Transit_Time"      = "#c04545", 
+  "Fecal_Mass"      = "#264653", 
+  "Microbiota_Excretion"    = "#fdb747",  
+  "Microbial_Load" =  "#609A98"  
+)
+
+combined_df_sig_WT$QMP <- as.factor(combined_df_sig_WT$QMP)
+
+combined_df_sig_WT$fill_color <- ifelse(
+  combined_df_sig_WT$Significance == TRUE,
+  qmp_colors[as.character(combined_df_sig_WT$QMP)],
+  "white"
+)
+
+ordered_taxa_WT <- combined_df_sig_WT %>%
+  filter(QMP == "Microbial_Load") %>%
+  arrange(desc(Rho)) %>%
+  pull(taxa)
+
+combined_df_sig_WT$taxa <- factor(combined_df_sig_WT$taxa, levels = ordered_taxa_WT)
+```
+
+Plot
+```{r} 
+pdf("Taxa_QMP_corr_WT_fold.pdf", width = 14, height=14)
+ggplot(combined_df_sig_WT, aes(x = taxa, y = Rho)) +
+  geom_point(
+    aes(color = QMP, fill = fill_color),
+    shape = 21,
+    size = 4,
+    stroke = 1.2
+  ) +
+  scale_color_manual(
+    name = "",
+    values = qmp_colors,
+     labels = c(
+    "Transit_Time"      = "GI Transit Time [min]",
+    "Fecal_Mass"      = "Fecal Mass [g per GI Passage]",
+    "Microbiota_Excretion"    = "Microbiota Excretion [16S rRNA GCN per GI Passage]",
+    "Microbial_Load" = "Microbial Load [16S rRNA GCN/g per GI Passage]"
+  )
+  ) +
+  scale_fill_identity() +
+  labs(
+    x = "",
+    y = "Spearman Correlation Coefficient (Rho)"
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_hline(yintercept = c(-0.2, 0.2), linetype = "dotted", color = "gray")+
+  Settings_corr_all
+dev.off()
+```
