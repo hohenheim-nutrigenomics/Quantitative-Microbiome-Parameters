@@ -512,3 +512,41 @@ ggplot(plot_data, aes(x = Gene, y = Expression, fill = diet, color = diet)) +
 dev.off()
 ```
 
+# Figure 1G - gene correlation 
+
+# 1. Preparation
+see Figure 1F -> diet_data_ileum
+
+```{r}
+table(diet_data_ileum$diet)
+```
+
+
+# 2. Statistics 
+
+```{r}
+cor.test(diet_data_ileum$Microbial_Load, diet_data_ileum$CCL5, method = "spearman")
+```
+
+# 3. Plot
+
+```{r}
+diet_colors <- c("#85C1E9", "#AF7AC5", "#F39C12", "#52BE80")
+diet_labels <- c("control"= "RCD", "fasting" = "Fasting", "high_fat" = "HFaD", "high_fiber"= "HFiD")
+
+pdf("Diet_ileum_CCL5_load_corr.pdf", width = 10, height = 7)
+
+diet_data_ileum %>% 
+ggplot(aes(Microbial_Load, CCL5)) +
+  geom_point(shape = 16, size = 4, aes(fill = diet, color = diet)) + 
+  geom_smooth(method = 'lm', color = 'black', linewidth = 1, se = F) +
+  
+  scale_color_manual(values = diet_colors,  name = "Diet", labels = diet_labels) +
+  scale_fill_manual(values = diet_colors,  name = "Diet", labels = diet_labels) +
+  
+  labs(x = paste0("<span style='font-size: 25pt'>Microbial Load</span><br><span style='font-size: 20pt'>[16S rRNA GCN/g per GI Passage]</span>"), 
+       y = paste0("<span style='font-size: 25pt'>Relative <i>Ccl5</i> mRNA expression</span>")) +
+  Settings_corr +  theme(axis.title.x = ggtext::element_markdown(), axis.title.y = ggtext::element_markdown(), legend.position = "none")
+
+dev.off()
+```
